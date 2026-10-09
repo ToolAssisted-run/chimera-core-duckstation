@@ -109,11 +109,10 @@ and declared.
   declarations, `build-package.sh`, Chimera's contract tests, and a project
   through `chimera-run`. The frontend gate under Mono is not written.
 - **M6 - the hardware renderer.** PARTLY, 2026-10-09: it runs inside the
-  sandbox on Mesa softpipe and, through the GPU bridge, on a host's OpenGL,
-  at 1x to 8x, with states, rewind and an exact picture after a load. Not
-  yet: a measurement on a real graphics card (everything bridged so far was
-  drawn by llvmpipe), and the enhancements beyond resolution - PGXP, true
-  colour, texture filtering, widescreen - as settings.
+  sandbox on Mesa softpipe and, through the GPU bridge, on a real card (a GTX
+  1060), at 1x to 8x, with states, rewind and an exact picture after a load.
+  Not yet: the enhancements beyond resolution - PGXP, true colour, texture
+  filtering, widescreen - as settings, and a 3D scene looked at.
 - **M7 - speed**: the code generators, if the interpreter is not enough.
 - **M8 - the arcade boards** (ArcadeDuck; see below).
 - **M9 - documents, CI, publishing.**
@@ -303,8 +302,34 @@ ended on the native software reference's Main RAM, with a 2560x896 frame.
 What a state does NOT carry: the PGXP depth buffer (not offered as a setting
 yet; cleared after a load, as upstream does on a settings change).
 
-NOT MEASURED: any of this on a graphics card. llvmpipe proves the bridge and
-the rebuild run; it is not a driver.
+### On a graphics card (2026-10-09)
+
+GeForce GTX 1060 6GB, NVIDIA 581.42, Windows, `chimera-run.exe --gpu` (engine
+8d4b1f5), NHL Blades of Steel 2000, core 2fecb5a. The package is the one built
+on Linux; nothing is built for Windows.
+
+| run | result |
+|---|---|
+| software, 1800 frames | 3 s; Main RAM is the Linux native reference's |
+| opengl-hw 1x, 1800 frames | 4 s; the same RAM |
+| opengl-hw 4x | 13 s; the same RAM; frame 2560x896, the right way up |
+| opengl-hw 8x | 49 s (37 frames a second, with every frame read back at 5120x1792); the same RAM |
+| `--settle-probe 1700,12` at 4x, a state every 100 frames | all 12 frames drawn after the load: 0.00% of pixels differ |
+| the same with `CHIMERA_NO_STATE_SAVING=1` | all 12 frames: 96.49% of pixels differ |
+| `--settle-probe-unseen` with `--draw-every-frame`, 4x | told: exact; untold: 96.49% |
+| `--settle-probe-state`, 4x | exact |
+| `--settle-probe` at 1x | exact |
+
+So the readback is not to be flipped on a real driver either, the driver's
+strings are its own ("GL_VENDOR: NVIDIA Corporation"), and what `StateSaving`
+carries is what makes the picture after a load: the scene probed is a 2D logo
+the game leaves in VRAM and does not redraw, which is the hardest case for a
+renderer that lost its VRAM and the reason the untold control is wrong for as
+long as it was watched.
+
+What that does NOT show: a 3D scene, PGXP, a game that reads its picture
+back, a state made in one process and loaded in another on the card, or any
+other card.
 
 ## The package
 

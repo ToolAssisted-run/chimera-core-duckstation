@@ -10,9 +10,8 @@ under the GPL-3.0. The pin does not move; `docs/PLAN.md` says why.
 native build, on the software renderer and on the hardware renderer at up to
 8x, and the package loads in Chimera. The hardware renderer draws through an
 OpenGL compiled into the core, or - `opengl-hw` - on the computer's own
-graphics card through Chimera's GPU bridge. That route has only been driven by
-a software OpenGL so far; a real card, and the enhancements beyond
-resolution, are still to come. `docs/PLAN.md` has the milestones and what was
+graphics card through Chimera's GPU bridge. That route has been measured on one card (a GTX 1060, on Windows); the
+enhancements beyond resolution are still to come. `docs/PLAN.md` has the milestones and what was
 measured.
 
 ## Building
