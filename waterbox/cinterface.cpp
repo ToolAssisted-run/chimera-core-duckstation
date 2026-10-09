@@ -495,6 +495,66 @@ void ApplySettings(SettingsInterface& si)
     g_scale = std::clamp<int>(static_cast<int>(wbx_setting_long("internalResolution", 1)), 1, MAX_SCALE);
     if (strcmp(renderer, "software") == 0)
       g_scale = 1; // the software renderer draws the console's own pixels
+
+    // The hardware renderer's enhancements. Every one is off unless the
+    // project turns it on: what this core draws by default is what the
+    // console drew, at whatever resolution, and an enhancement is a choice a
+    // project records. (Upstream's own defaults differ in one: it draws in
+    // 24-bit colour unless told not to.) They do nothing under "software".
+    si.SetBoolValue("GPU", "TrueColor", wbx_setting_bool("trueColor", 0) != 0);
+    si.SetBoolValue("GPU", "ScaledDithering", wbx_setting_bool("scaledDithering", 1) != 0);
+    si.SetBoolValue("GPU", "Debanding", false);
+
+    static const struct { const char* ours; const char* upstream; } kFilters[] = {
+      {"nearest", "Nearest"},
+      {"bilinear", "Bilinear"},
+      {"bilinearBinAlpha", "BilinearBinAlpha"},
+      {"jinc2", "JINC2"},
+      {"jinc2BinAlpha", "JINC2BinAlpha"},
+      {"xbr", "xBR"},
+      {"xbrBinAlpha", "xBRBinAlpha"},
+    };
+    const auto filter = [](const char* key) {
+      char v[24] = "nearest";
+      wbx_setting_str(key, v, sizeof(v));
+      for (const auto& f : kFilters)
+      {
+        if (strcmp(v, f.ours) == 0)
+          return f.upstream;
+      }
+      return "Nearest";
+    };
+    si.SetStringValue("GPU", "TextureFilter", filter("textureFiltering"));
+    si.SetStringValue("GPU", "SpriteTextureFilter", filter("spriteTextureFiltering"));
+
+    {
+      char v[16] = "disabled";
+      wbx_setting_str("downsampling", v, sizeof(v));
+      si.SetStringValue("GPU", "DownsampleMode",
+                        strcmp(v, "box") == 0 ? "Box" : (strcmp(v, "adaptive") == 0 ? "Adaptive" : "Disabled"));
+    }
+
+    // PGXP: the geometry the game computed, kept at the precision it was
+    // computed at instead of rounded to the console's whole pixels.
+    const bool pgxp = wbx_setting_bool("pgxp", 0) != 0;
+    si.SetBoolValue("GPU", "PGXPEnable", pgxp);
+    si.SetBoolValue("GPU", "PGXPCulling", pgxp && wbx_setting_bool("pgxpCulling", 1) != 0);
+    si.SetBoolValue("GPU", "PGXPTextureCorrection", pgxp && wbx_setting_bool("pgxpTextureCorrection", 1) != 0);
+    si.SetBoolValue("GPU", "PGXPColorCorrection", pgxp && wbx_setting_bool("pgxpColorCorrection", 0) != 0);
+    si.SetBoolValue("GPU", "PGXPDepthBuffer", pgxp && wbx_setting_bool("pgxpDepthBuffer", 0) != 0);
+    si.SetBoolValue("GPU", "PGXPCPU", pgxp && wbx_setting_bool("pgxpCpu", 0) != 0);
+    si.SetBoolValue("GPU", "PGXPVertexCache", false);
+    si.SetBoolValue("GPU", "PGXPPreserveProjFP", false);
+    si.SetBoolValue("GPU", "WidescreenHack", false);
+
+    // How much of the raster is handed over. It is the picture's edge and
+    // nothing the machine can see.
+    {
+      char v[16] = "overscan";
+      wbx_setting_str("crop", v, sizeof(v));
+      si.SetStringValue("Display", "CropMode",
+                        strcmp(v, "none") == 0 ? "None" : (strcmp(v, "borders") == 0 ? "Borders" : "Overscan"));
+    }
     si.SetIntValue("GPU", "ResolutionScale", g_scale);
   }
   si.SetBoolValue("GPU", "UseThread", false);

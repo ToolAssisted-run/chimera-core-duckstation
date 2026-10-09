@@ -108,12 +108,16 @@ and declared.
 - **M5 - the package.** DONE 2026-10-09 for what exists: the four
   declarations, `build-package.sh`, Chimera's contract tests, and a project
   through `chimera-run`. The frontend gate under Mono is not written.
-- **M6 - the hardware renderer.** PARTLY, 2026-10-09: it runs inside the
-  sandbox on Mesa softpipe and, through the GPU bridge, on a real card (a GTX
-  1060), at 1x to 8x, with states, rewind and an exact picture after a load.
-  Not yet: the enhancements beyond resolution - PGXP, true colour, texture
-  filtering, widescreen - as settings, and a 3D scene looked at.
-- **M7 - speed**: the code generators, if the interpreter is not enough.
+- **M6 - the hardware renderer.** DONE 2026-10-09 but for widescreen: it
+  runs inside the sandbox on Mesa softpipe and, through the GPU bridge, on a
+  real card (a GTX 1060), at 1x to 8x, with states, rewind and an exact
+  picture after a load, and with true colour, texture filtering,
+  downsampling, PGXP and crop as settings. The widescreen hack is not
+  offered: it makes a 16:9 picture, and a package declares one shape for its
+  picture (see "What is the owner's").
+- **M7 - speed.** NOT NEEDED so far: the interpreter runs a 3D race at eight
+  times real time in the sandbox (see "A game played"). The code generators
+  stay unbuilt, and with them the question of write protection.
 - **M8 - the arcade boards** (ArcadeDuck; see below).
 - **M9 - documents, CI, publishing.**
 
@@ -331,6 +335,39 @@ What that does NOT show: a 3D scene, PGXP, a game that reads its picture
 back, a state made in one process and loaded in another on the card, or any
 other card.
 
+## A game played (2026-10-09)
+
+Need for Speed: Porsche Unleashed (USA), SLUS-01104: one image of a data
+track and audio tracks, with films (MDEC), 2D menus and a 3D race. A script of
+presses - Start to skip the films, Cross every 150 frames through the
+quick-race menus on their defaults, Cross held from frame 5500 as the
+accelerator - takes it from boot to half a minute of driving France, Riviera
+in 7200 frames. `fast_boot` on.
+
+| run | result |
+|---|---|
+| native against sandbox, 7200 frames | video, audio, lag, the per-frame machine digest and Main RAM identical; 11.4 s native, 14.4 s sandboxed for two minutes of machine time |
+| the same with nothing pressed | a different run (the films play on), so the presses reached the game |
+| sandbox, kept at frame 4000 in the menus and restored at 6800 in the race | the straight run |
+| opengl-hw 1x and 4x, nothing turned on (llvmpipe) | sound, lag, machine digest and Main RAM are the software renderer's |
+| + true colour | picture differs; machine and RAM the same |
+| + bilinear texture filtering | picture differs; machine and RAM the same |
+| + PGXP | picture differs, and so does the machine: 702 lag frames against 718, another digest, other RAM |
+
+**PGXP is not only a picture setting.** With it on, which polygons are
+culled is decided with the precise coordinates, and the time the emulated GPU
+is busy is charged per polygon drawn - so the game sees a GPU that finishes at
+other moments and runs differently. That is upstream's behaviour, not this
+port's, and it is why every enhancement here is a setting a project pins and
+a movie cites rather than a preference: the one that looked most like a pure
+picture option is the one that moves the machine.
+
+**The defaults are the console.** Upstream's hardware renderer draws in
+24-bit colour unless told not to; here `trueColor` is off, like every other
+enhancement, and what `opengl` or `opengl-hw` draws by default is what the
+console drew at a higher resolution. Same rule as interlace, and as much the
+porter's decision.
+
 ## The package
 
 `waterbox/build-package.sh -r <chimera>` builds `duckstation.chimeraCore`:
@@ -373,10 +410,11 @@ upwards), and nothing at all on Windows.
 ## The gate
 
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
-with a Chimera checkout, with a GL context for the bridge. 26 legs, four
-minutes here, all of them passing on 2026-10-09 with the SCPH-7001 BIOS and
-NHL Blades of Steel 2000 (USA). Five are the hardware renderer's on softpipe,
-sandbox against itself, and four are the bridge's, drawn by llvmpipe.
+with a Chimera checkout, with a GL context for the bridge, with the 3D game.
+30 legs, seven and a half minutes here, all of them passing on 2026-10-09
+with the SCPH-7001 BIOS, NHL Blades of Steel 2000 (USA) and Need for Speed:
+Porsche Unleashed (USA). Five are the hardware renderer's on softpipe,
+sandbox against itself, and six are the bridge's, drawn by llvmpipe.
 
 `gpu:picture-after-load` carries its own control: the same rewind is run with
 `CHIMERA_NO_STATE_SAVING=1`, which leaves the core untold as it does in the
@@ -410,6 +448,10 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 | the woven frame kept in memory no state carries | `disc:rewind` (and nothing at all while interlace was off by default) |
 | the card's VRAM fetched and never given back | `gpu:picture-after-load`, `gpu:rerecord` |
 | the bridge offered and ignored | `gpu:bridge` (softpipe drew), and `gpu:picture-after-load` through its control ("the untold picture is the SAME") |
+| presses dropped, on the 3D game | `play:compare` ("pressed and idle are the SAME run"), and `gpu:enhancements`, because films are all that is then drawn and neither filtering nor PGXP changes a film |
+| `StateLoaded` writing to RAM, again | `play:rewind`, with every other rerecord and rewind leg |
+| sound dropped under the GL renderers, again | `gpu:play` |
+| the true-colour setting ignored, alone | its picture is the plain one while bilinear's is not (by hand, the leg's own comparison) |
 | a binding for a button that is not declared | `keybinds` |
 | a source newer than `core.wbx` | `build:fresh` |
 | a project with `fast_boot` against the reference without | the `engine:project` comparison, by hand; in the gate that leg was seen red through its stale-package arm |
@@ -418,10 +460,11 @@ Chimera's contract tests pass against the package alone (12 of 12) and fail
 with a binding for an undeclared button added to a copy of it (11 of 12,
 naming `duckstation/PlayStation Controllers: P1 Turbo Nonsense`).
 
-What the gate does not stand in for (docs/gates.md, E): one game, booted to
-its publisher logos with a pad exercised at random. No menu was navigated, no
-3D scene was drawn, no save was written. An NTSC-U disc on an NTSC-U BIOS is
-the only combination tried.
+What the gate does not stand in for (docs/gates.md, E): two games, both
+NTSC-U on an NTSC-U BIOS, one of them played for half a minute. No save was
+written, no second disc was swapped in, no PAL or Japanese console was
+booted, and every bridged leg was drawn by llvmpipe - the card's results are
+measured by hand and written above.
 
 ## What was measured (2026-10-09)
 
@@ -489,3 +532,27 @@ by one) have to be read first.
 - **The repository's own files are MIT, with two exceptions.**
   `waterbox/host.cpp` and `waterbox/audio-stream.cpp` are made from upstream's
   source and say GPL-3.0 at the top. `LICENSE` has the note.
+
+## What is the owner's
+
+Asked and answered (2026-10-09): the pin, the name, ArcadeDuck in scope.
+
+Not yet asked, and decided provisionally so the work could go on:
+
+- **Defaults that are the console rather than upstream**: interlace `weave`
+  (upstream: progressive), `trueColor` off (upstream: on).
+- **Internal resolution stops at 8x.** The request lists up to 16x; a frame
+  at 16x is 10240x7680, 315 MB, read back and handed over every frame. 8x
+  already ran at 37 frames a second on a GTX 1060 for that reason.
+- **This repository's own files are MIT**, as the other cores' are, with two
+  files made from upstream's source under its GPL-3.0.
+- **Widescreen.** Upstream's widescreen hack changes what the game draws to
+  suit a 16:9 screen; the frame is still the console's raster and has to be
+  SHOWN 16:9. A package declares one shape for its picture
+  (`virtualWidth`/`virtualHeight`), so offering it properly needs the shape
+  to follow a setting - a declaration every core could use, and so a change
+  to Chimera's design and not something this core may special-case. Not
+  offered until that is decided.
+
+Needing a decision before they happen: creating the public repository, the
+roster and README rows, a comment on chimera#221, and closing it.

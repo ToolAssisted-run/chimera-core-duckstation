@@ -15,6 +15,9 @@
 #                   program, identical in the sandbox, by name and without one
 #   with Chimera    $CHIMERA_ROOT, with chimera-run built and this package
 #                   installed: the package through the engine
+#   with a 3D game  tests/roms/, or $CHIMERA_PS1_GAME3D: Need for Speed -
+#                   Porsche Unleashed (USA), driven from boot through its
+#                   menus into a race by a script of presses
 #
 # A check whose content is missing reports SKIP and says what it would have
 # proven. A SKIP is not a pass.
@@ -175,7 +178,8 @@ if [ -z "$bios" ]; then
 	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted \
 		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind \
 		gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord cue:alone \
-		disc:compare disc:rerecord disc:rewind disc:nameless engine:project; do
+		disc:compare disc:rerecord disc:rewind disc:nameless engine:project \
+		play:compare play:rewind gpu:play gpu:enhancements; do
 		report "$leg" SKIP "needs a PlayStation BIOS: tests/roms/bios/PSX_4.1(A).bin, or CHIMERA_PS1_BIOS=<file>"
 	done
 	echo
@@ -490,6 +494,101 @@ else
 			report "engine:project" PASS "the installed package, from a project, through chimera-run: Main RAM after 900 frames is the native reference's"
 		else
 			report "engine:project" FAIL "$(grep -h -E '^(status|detail)=' "$ep/meta.txt" 2>/dev/null | tr '\n' ' ') $(tail -1 "$ep/run.log" | plain | cut -c1-160)"
+		fi
+	fi
+fi
+
+# ---- a game played: boot, menus, a race --------------------------------------
+#
+# Need for Speed: Porsche Unleashed (USA, SLUS-01104). Start skips the intro
+# films, Cross every 150 frames walks the quick-race menus on their defaults,
+# and from frame 5500 Cross is held, which is the accelerator: by frame 7200
+# the car has driven half a minute of France, Riviera. It is one disc image of
+# a data track and audio tracks, a film player (MDEC), 2D menus and a 3D race,
+# which is most of what a PlayStation does. The presses are the wire's own
+# indices (4 Start, 7 Cross); a different release of the game would need a
+# different script, which is why the content is named.
+game3d="${CHIMERA_PS1_GAME3D:-}"
+[ -n "$game3d" ] || { [ -f "$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue" ] && game3d="$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue"; }
+if [ -z "$game3d" ]; then
+	for leg in play:compare play:rewind gpu:play gpu:enhancements; do
+		report "$leg" SKIP "needs tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue with its image, or CHIMERA_PS1_GAME3D=<that .cue>"
+	done
+else
+	g3dir="$(dirname "$game3d")"
+	mk3d() { # <dir> <settings json>
+		mkwork "$1" "$bios" "$2"
+		cp "$game3d" "$1/"
+		sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$game3d" | sort -u | while IFS= read -r f; do ln -s "$g3dir/$f" "$1/$f"; done
+		printf '{"disc":["%s"]}' "$(basename "$game3d")" > "$1/slots"
+	}
+	presses="--press 900:4:4 --press 1100:4:4 --press 1300:4:4"
+	for f in $(seq 1500 150 5400); do presses="$presses --press $f:4:7"; done
+	presses="$presses --press 5500:1650:7"
+
+	mk3d "$work/play" '{"fast_boot":true}'
+	# shellcheck disable=SC2086
+	native "$work/play" --frames 7200 $presses 2>/dev/null | digests > "$work/play.n"
+	# shellcheck disable=SC2086
+	wbx "$work/play" --frames 7200 $presses 2>/dev/null | digests > "$work/play.w"
+	# the same run with nothing pressed must be a different one, or the script
+	# reached nothing and "identical" is two idle machines agreeing
+	native "$work/play" --frames 7200 2>/dev/null | digests > "$work/play.idle"
+	if [ -s "$work/play.n" ] && cmp -s "$work/play.n" "$work/play.w" && ! cmp -s "$work/play.n" "$work/play.idle"; then
+		report "play:compare" PASS "7200 frames from boot through the menus into a driven race: video, audio, lag, the machine every frame and memory identical"
+	else
+		report "play:compare" FAIL "flavors $(cmp -s "$work/play.n" "$work/play.w" && echo agree || echo DIFFER: "$(diff "$work/play.n" "$work/play.w" | head -3 | tr '\n' ' ')"); pressed and idle $(cmp -s "$work/play.n" "$work/play.idle" && echo "are the SAME run" || echo differ)"
+	fi
+
+	# kept in the menus, restored half a minute into the race
+	# shellcheck disable=SC2086
+	wbx "$work/play" --frames 7200 $presses --rewind 4000:6800 2>/dev/null | digests > "$work/play.rw"
+	if [ -s "$work/play.w" ] && cmp -s "$work/play.w" "$work/play.rw"; then
+		report "play:rewind" PASS "kept at frame 4000 in the menus, restored at 6800 in the race and replayed: the straight run"
+	else
+		report "play:rewind" FAIL "$(diff "$work/play.w" "$work/play.rw" | head -4 | tr '\n' ' ')"
+	fi
+
+	if [ ! -x "$brg/run-wbx" ] || [ -z "${hw_driver:-}" ]; then
+		for leg in gpu:play gpu:enhancements; do
+			report "$leg" SKIP "needs the bridge's runner (build/meson-gl) and a GL context on this machine"
+		done
+	else
+		# The race, drawn by the hardware renderer with nothing turned on: the
+		# machine must be the software renderer's, memory included - this game
+		# does not read its picture back.
+		# shellcheck disable=SC2086
+		wbx "$work/play" --frames 5600 $presses 2>/dev/null > "$work/play.sw"
+		mk3d "$work/playhw" '{"fast_boot":true,"renderer":"opengl-hw"}'
+		# shellcheck disable=SC2086
+		wbxgpu "$work/playhw" --frames 5600 $presses 2>/dev/null > "$work/play.hw"
+		same_machine() { cmp -s <(grep -E '^(audioHash|lagFrames|machineHash|domain\[)' "$1") <(grep -E '^(audioHash|lagFrames|machineHash|domain\[)' "$2"); }
+		if grep -q '^machineHash=' "$work/play.hw" && same_machine "$work/play.sw" "$work/play.hw"; then
+			report "gpu:play" PASS "5600 frames into the race on the host's driver: sound, lag, the machine every frame and Main RAM are the software renderer's"
+		else
+			report "gpu:play" FAIL "$(diff <(grep -E '^(audioHash|lagFrames|machineHash|domain)' "$work/play.sw") <(grep -E '^(audioHash|lagFrames|machineHash|domain)' "$work/play.hw") | head -4 | tr '\n' ' ')"
+		fi
+
+		# The enhancements reach the renderer: each one, alone, must change the
+		# picture of the race. Two of them must leave the machine alone. PGXP
+		# must NOT: it decides which polygons are drawn, and how long the
+		# console's GPU is busy follows from that (measured, docs/PLAN.md).
+		plain_v="$(sed -n 's/^videoHash=//p' "$work/play.hw")"
+		wrong=""
+		for pair in 'trueColor:"trueColor":true:same' 'textureFiltering:"textureFiltering":"bilinear":same' 'pgxp:"pgxp":true:differs'; do
+			nm="${pair%%:*}"; rest="${pair#*:}"; want="${rest##*:}"; kv="${rest%:*}"
+			mk3d "$work/enh" "{\"fast_boot\":true,\"renderer\":\"opengl-hw\",$kv}"
+			# shellcheck disable=SC2086
+			wbxgpu "$work/enh" --frames 5600 $presses 2>/dev/null > "$work/enh.$nm"
+			v="$(sed -n 's/^videoHash=//p' "$work/enh.$nm")"
+			[ -n "$v" ] && [ "$v" != "$plain_v" ] || wrong="$wrong; $nm left the picture as it was"
+			if same_machine "$work/play.hw" "$work/enh.$nm"; then got=same; else got=differs; fi
+			[ "$got" = "$want" ] || wrong="$wrong; with $nm the machine $got, expected $want"
+		done
+		if [ -z "$wrong" ]; then
+			report "gpu:enhancements" PASS "true colour, bilinear filtering and PGXP each change the race's picture; the first two leave the machine alone and PGXP, as measured, does not"
+		else
+			report "gpu:enhancements" FAIL "${wrong#; }"
 		fi
 	fi
 fi
