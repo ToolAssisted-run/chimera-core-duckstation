@@ -44,7 +44,12 @@ trap 'rm -rf "$work"' EXIT
 # machineHash is the machine's clock and program counter folded in EVERY frame;
 # the memory domains are hashed once, at the end, and a difference that healed
 # before then would otherwise go unseen.
-digests() { grep -E '^(frames|vsync|videoHash|audioHash|lagFrames|machineHash|domain\[)'; }
+digests() { grep -E '^(frames|vsync|videoSize|videoHash|audioHash|lagFrames|machineHash|domain\[)'; }
+# what a run can be held to when only the RENDERER differs: where the processor
+# was every frame, what the frame sounded like and which frames polled. Not the
+# picture, and not memory - a console that reads its own picture back puts the
+# renderer's pixels in its RAM, and the BIOS shell does.
+machine_only() { grep -E '^(frames|vsync|audioHash|lagFrames|machineHash)'; }
 plain() { sed 's/\x1b\[[0-9;]*m//g'; }  # upstream colours its log
 
 ok=0
@@ -151,7 +156,8 @@ disc="${CHIMERA_PS1_DISC:-}"
 [ -n "$disc" ] || { [ -f "$root/tests/roms/NHL Blades of Steel 2000 (USA).cue" ] && disc="$root/tests/roms/NHL Blades of Steel 2000 (USA).cue"; }
 
 if [ -z "$bios" ]; then
-	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted cue:alone \
+	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted \
+		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind cue:alone \
 		disc:compare disc:rerecord disc:rewind disc:nameless engine:project; do
 		report "$leg" SKIP "needs a PlayStation BIOS: tests/roms/bios/PSX_4.1(A).bin, or CHIMERA_PS1_BIOS=<file>"
 	done
@@ -184,16 +190,19 @@ else
 	report "bios:rerecord" FAIL "$(diff "$work/shell.s" "$work/shell.r" | head -4 | tr '\n' ' ')"
 fi
 
-# Rewind: keep the machine at frame 200, run on to 450, put it back and run
+# Rewind: keep the machine at frame 700, run on to 1150, put it back and run
 # those frames again. The round-trip above saves and loads with nothing in
-# between, so it cannot see state a snapshot does not reach - by frame 450
+# between, so it cannot see state a snapshot does not reach - by frame 1150
 # that state has moved on, and a machine that kept any would end up elsewhere.
-wbx "$work/shell" --frames 600 2>/dev/null | digests > "$work/shell.6"
-wbx "$work/shell" --frames 600 --rewind 200:450 2>/dev/null | digests > "$work/shell.rw"
-if [ -s "$work/shell.6" ] && cmp -s "$work/shell.6" "$work/shell.rw"; then
-	report "bios:rewind" PASS "kept at frame 200, restored at 450 and replayed: the 600-frame run it would have been"
+# The two frames are chosen to LOOK different (a logo, and the menu): the
+# console's picture is interlaced, half of every frame handed over is the
+# field before it, and a frame buffer left out of the state would show the
+# menu's lines under the logo for one frame and nowhere else.
+wbx "$work/shell" --frames 1200 --rewind 700:1150 2>/dev/null | digests > "$work/shell.rw"
+if [ -s "$work/shell.w" ] && cmp -s "$work/shell.w" "$work/shell.rw"; then
+	report "bios:rewind" PASS "kept at frame 700, restored at 1150 and replayed: the 1200-frame run it would have been"
 else
-	report "bios:rewind" FAIL "$(diff "$work/shell.6" "$work/shell.rw" | head -4 | tr '\n' ' ')"
+	report "bios:rewind" FAIL "$(diff "$work/shell.w" "$work/shell.rw" | head -4 | tr '\n' ' ')"
 fi
 
 wbx "$work/shell" --frames 1200 2>/dev/null | digests > "$work/shell.w2"
@@ -236,6 +245,67 @@ if [ -n "$lag" ] && [ "$lag" -gt 0 ] && [ "$lag" -lt 1300 ]; then
 	report "lag:counted" PASS "$lag of 1300 frames went unpolled: the boot logos do not read the pad, the menu does"
 else
 	report "lag:counted" FAIL "lagFrames=${lag:-missing} of 1300: either every frame polls or none does"
+fi
+
+# ---- the hardware renderer, on the OpenGL inside the sandbox -----------------
+#
+# The native reference has no OpenGL - Mesa is built for the guest and nothing
+# else - so these legs are the sandbox against itself: the hardware renderer
+# against the software one where they must agree (the processor, the sound),
+# and against itself across a state. What they do NOT stand in for: a real
+# driver. softpipe is the one GL every machine draws identically with, which is
+# its whole use here and exactly why it says nothing about a graphics card.
+mkwork "$work/gl" "$bios" '{"renderer":"opengl","verbose":true}'
+gl_log="$(wbx "$work/gl" --frames 300 2>&1 | plain)"
+if grep -q 'has no OpenGL in it' <<< "$gl_log"; then
+	for leg in gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind; do
+		report "$leg" SKIP "this core.wbx was built without a guest Mesa: waterbox/setup-mesa.sh, then setup-guest.sh -- -Dmesa_guest_dir=build/mesa"
+	done
+else
+	gl_renderer="$(sed -n 's/.*GL_RENDERER: //p' <<< "$gl_log" | head -1)"
+	hw="$(grep -c 'GPU_HW: Created HW framebuffer' <<< "$gl_log")"
+	if [ "$gl_renderer" = "softpipe" ] && [ "$hw" -ge 1 ]; then
+		report "gl:softpipe" PASS "the hardware renderer came up on GL_RENDERER softpipe, inside the sandbox"
+	else
+		report "gl:softpipe" FAIL "GL_RENDERER [${gl_renderer:-none}], hardware framebuffers made: $hw"
+	fi
+
+	# the same 500 frames, drawn by each renderer: one machine
+	mkwork "$work/gl1" "$bios" '{"renderer":"opengl"}'
+	wbx "$work/shell" --frames 500 2>/dev/null > "$work/sw.500"
+	wbx "$work/gl1" --frames 500 2>/dev/null > "$work/gl.500"
+	sw_v="$(sed -n 's/^videoHash=//p' "$work/sw.500")"; gl_v="$(sed -n 's/^videoHash=//p' "$work/gl.500")"
+	if [ -n "$gl_v" ] && cmp -s <(machine_only < "$work/sw.500") <(machine_only < "$work/gl.500"); then
+		report "gl:machine" PASS "500 frames: the processor, the sound and the polls are the software renderer's (pictures: $([ "$sw_v" = "$gl_v" ] && echo identical || echo different, as two rasterisers are))"
+	else
+		report "gl:machine" FAIL "$(diff <(machine_only < "$work/sw.500") <(machine_only < "$work/gl.500") | head -4 | tr '\n' ' ')"
+	fi
+
+	# twice the resolution is twice the picture - and still the same machine
+	mkwork "$work/gl2" "$bios" '{"renderer":"opengl","internalResolution":"2x"}'
+	wbx "$work/gl2" --frames 300 2>/dev/null > "$work/gl2.300"
+	wbx "$work/gl1" --frames 300 2>/dev/null > "$work/gl1.300"
+	s1="$(sed -n 's/^videoSize=//p' "$work/gl1.300")"; s2="$(sed -n 's/^videoSize=//p' "$work/gl2.300")"
+	w1="${s1%x*}"; h1="${s1#*x}"
+	if [ -n "$s1" ] && [ "$s2" = "$((w1 * 2))x$((h1 * 2))" ] && cmp -s <(machine_only < "$work/gl1.300") <(machine_only < "$work/gl2.300"); then
+		report "gl:scale" PASS "2x hands over $s2 where 1x hands over $s1, and the machine is the same"
+	else
+		report "gl:scale" FAIL "1x [$s1], 2x [$s2]; machine $(cmp -s <(machine_only < "$work/gl1.300") <(machine_only < "$work/gl2.300") && echo same || echo DIFFERS)"
+	fi
+
+	# what the GL holds is in the guest's memory, so a state carries it
+	wbx "$work/gl1" --frames 300 --rerecord 2>/dev/null | digests > "$work/gl.rr"
+	if [ -s "$work/gl.rr" ] && cmp -s <(digests < "$work/gl1.300") "$work/gl.rr"; then
+		report "gl:rerecord" PASS "300 frames with a state saved and loaded around every one: the straight run, picture included"
+	else
+		report "gl:rerecord" FAIL "$(diff <(digests < "$work/gl1.300") "$work/gl.rr" | head -4 | tr '\n' ' ')"
+	fi
+	wbx "$work/gl1" --frames 300 --rewind 120:260 2>/dev/null | digests > "$work/gl.rw"
+	if [ -s "$work/gl.rw" ] && cmp -s <(digests < "$work/gl1.300") "$work/gl.rw"; then
+		report "gl:rewind" PASS "kept at frame 120, restored at 260 and replayed: the straight run, picture included"
+	else
+		report "gl:rewind" FAIL "$(diff <(digests < "$work/gl1.300") "$work/gl.rw" | head -4 | tr '\n' ' ')"
+	fi
 fi
 
 # a cue sheet handed over without the files it names

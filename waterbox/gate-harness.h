@@ -444,6 +444,13 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 	}
 
 	printf("frames=%ld\n", frames);
+	{
+		/* the size of the frame the run ended on: a renderer asked for twice
+		 * the resolution has to hand over twice the picture */
+		int w = 0, h = 0;
+		c->video(&w, &h);
+		printf("videoSize=%dx%d\n", w, h);
+	}
 	printf("vsync=%d/%d\n", c->vsync_numerator(), c->vsync_denominator());
 	printf("videoHash=%016llx\n", (unsigned long long)vh);
 	printf("tailVideoHash=%016llx\n", (unsigned long long)th);

@@ -6,10 +6,12 @@ Upstream is `stenzek/duckstation`, pinned as a submodule at
 `extern/duckstation` to commit `14ab642` (2024-09-01): the last one offered
 under the GPL-3.0. The pin does not move; `docs/PLAN.md` says why.
 
-**Work in progress.** It boots a game on the software renderer, in the
-sandbox, identically to its native build, and the package loads in Chimera.
-The hardware renderer and its enhancements - the reason this core exists -
-are not built yet. `docs/PLAN.md` has the milestones and what was measured.
+**Work in progress.** It boots a game in the sandbox identically to its
+native build, on the software renderer and on the hardware renderer at up to
+8x, and the package loads in Chimera. The hardware renderer draws through an
+OpenGL compiled into the core, which is slow; the route to a real graphics
+card, and the enhancements beyond resolution, are not built yet.
+`docs/PLAN.md` has the milestones and what was measured.
 
 ## Building
 
@@ -20,7 +22,8 @@ commands).
 git submodule update --init
 meson setup build/meson-native -Dminibox_dir=<miniBox>    # the native reference and the runners
 ninja -C build/meson-native
-sh waterbox/setup-guest.sh -m <miniBox>                   # the sandboxed core
+bash waterbox/setup-mesa.sh -m <miniBox>                  # once: Mesa 24.0.9 for the guest, into build/mesa
+sh waterbox/setup-guest.sh -m <miniBox> -- -Dmesa_guest_dir="$PWD/build/mesa"   # the sandboxed core
 ninja -C build/meson-guest core.wbx
 ```
 

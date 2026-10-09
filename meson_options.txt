@@ -5,3 +5,6 @@ option('recompiler', type: 'boolean', value: false,
 
 option('host_clock', type: 'boolean', value: false,
   description: 'DIAGNOSTIC, native builds only: leave DuckStation\'s timers on the host\'s clock, as upstream has them. The shipped core never does - its clock is the console\'s own, bought with executed instructions - and a reference built this way is how the gate\'s clock leg is seen to fail.')
+
+option('mesa_guest_dir', type: 'string', value: '',
+  description: 'A Mesa built for the guest (waterbox/setup-mesa.sh builds it into build/mesa). With one, this core also builds DuckStation\'s OpenGL device and its hardware renderer, and runs them against Mesa softpipe INSIDE the sandbox - a real GL implementation, no GPU, still deterministic. Without one, only the software renderer is built.')

@@ -37,9 +37,29 @@ chimera_root="$(cd "$chimera_root" && pwd)"
 	exit 1
 }
 
+# The package carries the hardware renderer, which needs an OpenGL to draw
+# through: a guest Mesa (softpipe + OSMesa), built by waterbox/setup-mesa.sh
+# into build/mesa and linked into the core.
+#   MESA_GUEST_DIR=<path>  build against a guest Mesa elsewhere
+#   MESA_GUEST_DIR=        (empty) build a software-renderer-only core instead
+if [ "${MESA_GUEST_DIR+set}" = set ]; then
+	mesa_guest_dir="$MESA_GUEST_DIR"
+else
+	mesa_guest_dir="$root/build/mesa"
+	[ -d "$mesa_guest_dir/build-guest2" ] || {
+		echo "guest Mesa not built at $mesa_guest_dir/build-guest2." >&2
+		echo "Run ./waterbox/setup-mesa.sh -m $mb first, or pass MESA_GUEST_DIR= (empty) for a software-only core." >&2
+		exit 1
+	}
+fi
+
 # the guest, via the meson cross build
 if [ ! -f "$root/build/meson-guest/build.ninja" ]; then
-	MINIBOX_DIR="$mb" sh "$here/setup-guest.sh"
+	if [ -n "$mesa_guest_dir" ]; then
+		MINIBOX_DIR="$mb" sh "$here/setup-guest.sh" -- -Dmesa_guest_dir="$mesa_guest_dir"
+	else
+		MINIBOX_DIR="$mb" sh "$here/setup-guest.sh"
+	fi
 fi
 ninja -C "$root/build/meson-guest" core.wbx
 sh "$mb/source/guest/check-wbx.sh" "$root/build/meson-guest/core.wbx"

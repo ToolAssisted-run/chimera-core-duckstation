@@ -13,6 +13,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <emulibc.h>
 #include <waterbox_settings.h>
@@ -57,9 +58,11 @@ namespace {
 // ---- what a frame leaves behind ---------------------------------------------
 
 // The largest picture a PlayStation puts out is 640 columns by 480 lines of
-// VRAM, in a raster a little wider than that when no overscan is cropped.
+// VRAM (576 on a PAL console), in a raster a little wider than that when no
+// overscan is cropped. The hardware renderer draws it at a whole multiple.
 constexpr int MAX_WIDTH = 768;
 constexpr int MAX_HEIGHT = 576;
+constexpr int MAX_SCALE = 8; // waterbox.config's video.width and height are these three multiplied out
 constexpr int MAX_AUDIO_FRAMES = 2048; // waterbox.config's audio.samplesPerFrame
 
 char g_loadError[512];
@@ -71,8 +74,11 @@ int g_nsamples;
 int g_vsyncNum = 53693175;
 int g_vsyncDen = 897619;
 bool g_booted;
+int g_scale = 1;          // the internal resolution the project asked for
+size_t g_videoCapacity;   // pixels g_video has room for
 
 std::unique_ptr<MemorySettingsInterface> g_settingsLayer;
+std::string g_rendererWanted = "software";
 
 // ---- the wire ----------------------------------------------------------------
 
@@ -207,28 +213,86 @@ const char* NameTheBareFile()
 // rectangle. Upstream composes this with a shader on its way to a window; here
 // it is a copy. Lines the machine did not draw keep what they had, which for
 // an interlaced mode is the other field - a weave, the way a television did.
+//
+// The software renderer's texture is bytes already (waterbox/memory-device.cpp).
+// The hardware renderer's is on a GL device - Mesa's softpipe inside the
+// sandbox, or a real card across the bridge - and is read back from it, at
+// whatever multiple of the console's resolution it was drawn at.
 void ComposeFrame()
 {
   GPU::ChimeraDisplay d;
   g_gpu->ChimeraGetDisplay(&d);
 
-  int width = std::clamp<int>(d.display_width, 1, MAX_WIDTH);
-  int height = std::clamp<int>(d.display_height, 1, MAX_HEIGHT);
+  // How many texture pixels there are to one of the console's. The renderer
+  // says nothing about it directly; the texture's view of the visible VRAM
+  // rectangle does. 24-bit pictures (video) are never scaled.
+  int scale = 1;
+  if (d.texture && d.vram_width > 0 && d.view_width >= static_cast<s32>(d.vram_width))
+    scale = std::clamp<int>(d.view_width / static_cast<int>(d.vram_width), 1, MAX_SCALE);
+
+  int width = std::clamp<int>(d.display_width, 1, MAX_WIDTH) * scale;
+  int height = std::clamp<int>(d.display_height, 1, MAX_HEIGHT) * scale;
+  if (static_cast<size_t>(width) * height > g_videoCapacity)
+  {
+    // cannot happen while the scale is clamped to what was allocated for
+    width = MAX_WIDTH;
+    height = MAX_HEIGHT;
+    scale = 1;
+  }
   if (width != g_videoWidth || height != g_videoHeight)
   {
     // a new raster: nothing of the old one belongs in it
     g_videoWidth = width;
     g_videoHeight = height;
-    std::fill_n(g_video, MAX_WIDTH * MAX_HEIGHT, 0xFF000000u);
+    std::fill_n(g_video, static_cast<size_t>(width) * height, 0xFF000000u);
   }
 
-  u32 pitch = 0;
-  const u8* const bits = d.texture ? ChimeraMemoryTextureBits(d.texture, &pitch) : nullptr;
-  if (!bits)
+  if (!d.texture || d.view_width <= 0 || d.view_height <= 0)
   {
     // the display is off: a black screen, and it IS the picture
-    std::fill_n(g_video, MAX_WIDTH * MAX_HEIGHT, 0xFF000000u);
+    std::fill_n(g_video, static_cast<size_t>(width) * height, 0xFF000000u);
     return;
+  }
+
+  // The texture's bytes: where they already are, or read back from the device.
+  u32 pitch = 0;
+  const u8* bits = ChimeraMemoryTextureBits(d.texture, &pitch);
+  bool swap_rb = false;
+  bool flip = false;
+  int row0 = d.view_y, col0 = d.view_x;
+  if (!bits)
+  {
+    static std::unique_ptr<GPUDownloadTexture> download;
+    static std::vector<u32> texels;
+    const GPUTexture::Format format = d.texture->GetFormat();
+    if (format != GPUTexture::Format::RGBA8 && format != GPUTexture::Format::BGRA8)
+    {
+      std::fill_n(g_video, static_cast<size_t>(width) * height, 0xFF000000u);
+      return;
+    }
+    if (!download || download->GetWidth() != static_cast<u32>(d.view_width) ||
+        download->GetHeight() != static_cast<u32>(d.view_height) || download->GetFormat() != format)
+    {
+      download = g_gpu_device->CreateDownloadTexture(d.view_width, d.view_height, format);
+      texels.resize(static_cast<size_t>(d.view_width) * d.view_height);
+    }
+    pitch = static_cast<u32>(d.view_width) * 4u;
+    if (!download)
+      return;
+    download->CopyFromTexture(0, 0, d.texture, d.view_x, d.view_y, d.view_width, d.view_height, 0, 0, true);
+    if (!download->ReadTexels(0, 0, d.view_width, d.view_height, texels.data(), pitch))
+      return;
+
+    bits = reinterpret_cast<const u8*>(texels.data());
+    swap_rb = (format == GPUTexture::Format::RGBA8);
+    // Not flipped. OpenGL counts rows from the bottom and upstream's own
+    // screenshot code flips what it reads back, but the renderer draws VRAM
+    // into its texture top row first, and a read of that texture comes back
+    // the way it went in: flipping here turned the picture upside down
+    // (seen on softpipe, 2026-10-09; to be seen again on a real driver).
+    flip = false;
+    row0 = 0;
+    col0 = 0;
   }
 
   // An interlaced field is every other line of the raster.
@@ -238,23 +302,27 @@ void ComposeFrame()
   if (!d.interlaced)
   {
     // a progressive frame replaces the whole raster, borders included
-    for (int y = 0; y < height; y++)
-      std::fill_n(g_video + static_cast<size_t>(y) * MAX_WIDTH, width, 0xFF000000u);
+    std::fill_n(g_video, static_cast<size_t>(width) * height, 0xFF000000u);
   }
 
+  const int left = static_cast<int>(d.origin_left) * scale;
+  const int top = static_cast<int>(d.origin_top) * scale;
   for (int row = 0; row < d.view_height; row++)
   {
-    const int y = static_cast<int>(d.origin_top) + row * step + first;
+    const int y = top + row * step + first;
     if (y < 0 || y >= height)
       continue;
 
-    const u32* src = reinterpret_cast<const u32*>(bits + static_cast<size_t>(d.view_y + row) * pitch) + d.view_x;
-    u32* dst = g_video + static_cast<size_t>(y) * MAX_WIDTH;
+    const int src_row = flip ? (d.view_height - 1 - row) : row;
+    const u32* src = reinterpret_cast<const u32*>(bits + static_cast<size_t>(row0 + src_row) * pitch) + col0;
+    u32* dst = g_video + static_cast<size_t>(y) * width;
     for (int col = 0; col < d.view_width; col++)
     {
-      const int x = static_cast<int>(d.origin_left) + col;
-      if (x >= 0 && x < width)
-        dst[x] = src[col] | 0xFF000000u;
+      const int x = left + col;
+      if (x < 0 || x >= width)
+        continue;
+      const u32 p = src[col];
+      dst[x] = swap_rb ? (0xFF000000u | ((p & 0xFFu) << 16) | (p & 0xFF00u) | ((p >> 16) & 0xFFu)) : (p | 0xFF000000u);
     }
   }
 }
@@ -267,8 +335,26 @@ void ApplySettings(SettingsInterface& si)
   // fresh DuckStation would do.
   g_settings.Save(si, false);
 
-  // The renderer that needs no GPU, drawing on the thread that asked.
-  si.SetStringValue("GPU", "Renderer", Settings::GetRendererName(GPURenderer::Software));
+  // The renderer. "software" needs no GPU of any kind and is the one the
+  // native reference has; "opengl" is the hardware renderer, drawing through
+  // the OpenGL this core was built with.
+  {
+    char renderer[16] = "software";
+    wbx_setting_str("renderer", renderer, sizeof(renderer));
+    g_rendererWanted = renderer;
+#ifdef CHIMERA_GUEST_GL
+    si.SetStringValue("GPU", "Renderer",
+                      Settings::GetRendererName(strcmp(renderer, "software") == 0 ? GPURenderer::Software :
+                                                                                    GPURenderer::HardwareOpenGL));
+#else
+    si.SetStringValue("GPU", "Renderer", Settings::GetRendererName(GPURenderer::Software));
+#endif
+    // "1x" .. "8x": strtol stops at the letter
+    g_scale = std::clamp<int>(static_cast<int>(wbx_setting_long("internalResolution", 1)), 1, MAX_SCALE);
+    if (strcmp(renderer, "software") == 0)
+      g_scale = 1; // the software renderer draws the console's own pixels
+    si.SetIntValue("GPU", "ResolutionScale", g_scale);
+  }
   si.SetBoolValue("GPU", "UseThread", false);
   si.SetBoolValue("GPU", "DisableShaderCache", true);
 
@@ -279,6 +365,18 @@ void ApplySettings(SettingsInterface& si)
   // The interpreter until the code generators are a milestone of their own.
   si.SetStringValue("CPU", "ExecutionMode", Settings::GetCPUExecutionModeName(CPUExecutionMode::Interpreter));
   si.SetStringValue("CPU", "FastmemMode", Settings::GetCPUFastmemModeName(CPUFastmemMode::Disabled));
+
+  // Interlace. A console in an interlaced mode draws only the lines of the
+  // field it is not showing, and shows one field a frame; upstream's default
+  // is to pretend it does neither ("DisableInterlacing"), which is a sharper
+  // picture and a different machine - what is in VRAM is not what a
+  // PlayStation would have put there. The console's own behaviour is the
+  // default here and "progressive" is the enhancement, said as such.
+  {
+    char interlacing[16] = "weave";
+    wbx_setting_str("interlacing", interlacing, sizeof(interlacing));
+    si.SetBoolValue("GPU", "DisableInterlacing", strcmp(interlacing, "progressive") == 0);
+  }
 
   // A deinterlacer and a chroma filter are shaders upstream; the frame is
   // composed here instead (ComposeFrame).
@@ -418,15 +516,30 @@ ECL_EXPORT int Init(void)
 {
   g_loadError[0] = '\0';
 
-  g_video = static_cast<uint32_t*>(alloc_invisible(sizeof(uint32_t) * MAX_WIDTH * MAX_HEIGHT));
   g_soundOut = static_cast<int16_t*>(alloc_invisible(sizeof(int16_t) * 2 * MAX_AUDIO_FRAMES));
-  std::fill_n(g_video, MAX_WIDTH * MAX_HEIGHT, 0xFF000000u);
 
   SetFolders();
 
   g_settingsLayer = std::make_unique<MemorySettingsInterface>();
   Host::Internal::SetBaseSettingsLayer(g_settingsLayer.get());
   ApplySettings(*g_settingsLayer);
+
+#ifndef CHIMERA_GUEST_GL
+  if (g_rendererWanted != "software")
+  {
+    snprintf(g_loadError, sizeof(g_loadError),
+             "this build of the core has no OpenGL in it, and the project asks for the '%s' renderer.",
+             g_rendererWanted.c_str());
+    return 0;
+  }
+#endif
+
+  // The frame, at the scale the project asked for. It is the picture the
+  // frontend is shown and nothing the machine reads, but the weave keeps the
+  // other field in it from one frame to the next - so it is in the state.
+  g_videoCapacity = static_cast<size_t>(MAX_WIDTH) * MAX_HEIGHT * g_scale * g_scale;
+  g_video = static_cast<uint32_t*>(std::malloc(sizeof(uint32_t) * g_videoCapacity));
+  std::fill_n(g_video, g_videoCapacity, 0xFF000000u);
   EmuFolders::LoadConfig(*g_settingsLayer);
   SetFolders();
 
@@ -643,16 +756,7 @@ ECL_EXPORT void SetRenderingEnabled(int on)
 
 ECL_EXPORT uint32_t* GetVideoBgra(void)
 {
-  // the frame is kept at the buffer's own pitch; hand it over packed
-  static uint32_t* packed;
-  if (!packed)
-    packed = static_cast<uint32_t*>(alloc_invisible(sizeof(uint32_t) * MAX_WIDTH * MAX_HEIGHT));
-  for (int y = 0; y < g_videoHeight; y++)
-  {
-    std::memcpy(packed + static_cast<size_t>(y) * g_videoWidth, g_video + static_cast<size_t>(y) * MAX_WIDTH,
-                sizeof(uint32_t) * g_videoWidth);
-  }
-  return packed;
+  return g_video;
 }
 
 ECL_EXPORT int GetVideoWidth(void)

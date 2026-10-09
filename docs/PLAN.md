@@ -108,9 +108,11 @@ and declared.
 - **M5 - the package.** DONE 2026-10-09 for what exists: the four
   declarations, `build-package.sh`, Chimera's contract tests, and a project
   through `chimera-run`. The frontend gate under Mono is not written.
-- **M6 - the hardware renderer**: OpenGL through Mesa softpipe in the
-  sandbox, then the GPU bridge; the enhancements the request names (internal
-  resolution, PGXP, true colour, texture filtering, widescreen) as settings.
+- **M6 - the hardware renderer.** PARTLY, 2026-10-09: it runs inside the
+  sandbox on Mesa softpipe, at 1x to 8x, with states and rewind. Not yet: the
+  GPU bridge, which is what makes it usable (softpipe draws the BIOS menu at
+  25 frames a second at 1x and 6 at 2x), and the enhancements beyond
+  resolution - PGXP, true colour, texture filtering, widescreen - as settings.
 - **M7 - speed**: the code generators, if the interpreter is not enough.
 - **M8 - the arcade boards** (ArcadeDuck; see below).
 - **M9 - documents, CI, publishing.**
@@ -183,10 +185,70 @@ them in the sandbox (`getcwd`, `access`, `mkdir`, `lstat`) are answered in
 core (`waterbox/resources.S`). The disc-hash database and the cheat database
 are not the machine's and are absent.
 
+## The hardware renderer (2026-10-09)
+
+**An OpenGL inside the sandbox.** `waterbox/setup-mesa.sh` builds Mesa 24.0.9
+(SHA-256 pinned, the release and options every GL core here uses) for the
+guest: softpipe behind OSMesa, static, no LLVM. With `-Dmesa_guest_dir` the
+core compiles upstream's OpenGL device and links it; patch 0008 makes
+`OpenGLContext::Create` hand out `waterbox/gl-osmesa.cpp`'s context instead of
+asking a window system. Upstream's device, pipelines, stream buffers and the
+hardware renderer compiled and ran unchanged. The native reference has no GL:
+Mesa is built for the guest only, so its legs are the sandbox against itself.
+
+**The frame is read back.** The hardware renderer's display texture is a
+rectangle of its VRAM texture, at the internal resolution. `ComposeFrame`
+downloads it (upstream's `GPUDownloadTexture`), swaps RGBA to BGRA and places
+it in the raster as it does the software renderer's, everything multiplied by
+the scale - which it works out from the texture's view of the visible VRAM
+rectangle, because the renderer does not say. Upstream's screenshot code flips
+what it reads from a GL device; doing the same turned the picture upside
+down, so it is not flipped. That was seen on softpipe and has to be seen
+again on a real driver.
+
+**What the renderer changes, measured on the BIOS shell, 1200 frames:**
+
+| renderer | host time | audio, lag, `machineHash` | Main RAM |
+|---|---|---|---|
+| software | 4.4 s | reference | reference |
+| opengl 1x | 48 s | identical | different |
+| opengl 2x | 194 s | identical | different again |
+
+The processor runs the same instructions at the same times under all three -
+the renderer does not perturb the machine's clock. Its MEMORY differs,
+because the shell reads its own picture back and the pixels it gets are the
+renderer's (upstream's hardware renderer keeps 24-bit colour and does not
+dither, by default). NHL Blades of Steel 2000 does not read back in its first
+1800 frames: its RAM under opengl 2x is the software reference's, byte for
+byte. So the renderer and the internal resolution are part of the machine a
+movie is made on, as docs/new-core.md says a picture that feeds the machine
+must be, and both are declared as settings a project pins.
+
+**Interlace: the console's behaviour is the default, not upstream's.**
+Upstream defaults `GPU/DisableInterlacing` to true: in an interlaced mode it
+draws every line every frame, where a PlayStation draws only the field it is
+not showing. That is a steadier picture and different video memory. Here the
+setting is `interlacing`, `weave` by default (the console; the frame handed
+over is the field woven with the one before) with `progressive` as the
+enhancement. This is a decision made while porting, not one the owner was
+asked: it follows the rule that a default is the machine and an enhancement is
+a choice, and it is the kind of thing a first user may want reversed.
+
+The woven frame is kept from one frame to the next, so it is in the state.
+The first version kept it in memory no state carries and no leg noticed,
+because under upstream's default nothing was ever woven; with interlace on,
+the same mistake put back on purpose fails `disc:rewind`.
+
+**States.** Everything softpipe holds is the guest's memory, so a state
+carries the renderer whole: `gl:rerecord` and `gl:rewind` compare the picture
+too and pass.
+
 ## The package
 
-`waterbox/build-package.sh -r <chimera>` builds `duckstation.chimeraCore`
-(2.9 MB; the per-title database is most of what compresses).
+`waterbox/build-package.sh -r <chimera>` builds `duckstation.chimeraCore`:
+2.9 MB without the hardware renderer, 33 MB with it, nearly all of the
+difference Mesa (the PlayStation 2 and Dreamcast cores are the same size for
+the same reason). It needs `waterbox/setup-mesa.sh` run first.
 
 - **System id `PS1`**, the one the ares core uses for the same console.
   `.cue`, `.chd`, `.pbp`, `.ecm` and the executable extensions are claimed;
@@ -223,8 +285,9 @@ upwards), and nothing at all on Windows.
 ## The gate
 
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
-with a Chimera checkout. 17 legs, 80 seconds here, all of them passing on
-2026-10-09 with the SCPH-7001 BIOS and NHL Blades of Steel 2000 (USA).
+with a Chimera checkout. 22 legs, two and a quarter minutes here, all of them
+passing on 2026-10-09 with the SCPH-7001 BIOS and NHL Blades of Steel 2000
+(USA). Five are the hardware renderer's, on softpipe, sandbox against itself.
 
 The digests compared are video and audio hashed every frame, lag frames, the
 memory domains hashed once at the end, and `machineHash` - the machine's tick
@@ -248,6 +311,9 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 | `StateLoaded` writing to RAM | `bios:rerecord`, `disc:rerecord`, both rewind legs |
 | the wall clock written into the reference's RAM | `bios:deterministic`, both compare legs |
 | the reference built with `-Dhost_clock=true` | `clock:virtual`, alone, and the gate took 4m24s instead of 80s |
+| the renderer setting ignored | `gl:softpipe`, `gl:scale` |
+| eight samples of sound dropped a frame under the GL renderer | `gl:machine` |
+| the woven frame kept in memory no state carries | `disc:rewind` (and nothing at all while interlace was off by default) |
 | a binding for a button that is not declared | `keybinds` |
 | a source newer than `core.wbx` | `build:fresh` |
 | a project with `fast_boot` against the reference without | the `engine:project` comparison, by hand; in the gate that leg was seen red through its stale-package arm |

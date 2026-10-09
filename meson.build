@@ -79,6 +79,15 @@ if recompiler
   sources_env.set('CHIMERA_RECOMPILER', '1')
 endif
 
+# A guest Mesa turns on DuckStation's OpenGL device and with it the hardware
+# renderer: waterbox/gl-osmesa.cpp says what it is and why it is not a GPU.
+mesa = get_option('mesa_guest_dir')
+guest_gl = mesa != ''
+if guest_gl
+  sources_env.set('CHIMERA_GUEST_MESA', mesa)
+  defs += ['-DENABLE_OPENGL=1', '-DCHIMERA_GUEST_GL']
+endif
+
 if meson.is_cross_build()
   # musl's world has no room for thread-local storage: a sandboxed guest has
   # one thread and its whole state must be visible to a savestate.
@@ -148,6 +157,9 @@ driver_sources = files(
 if not recompiler
   driver_sources += files('waterbox/stubs/no-recompiler.cpp')
 endif
+if guest_gl
+  driver_sources += files('waterbox/gl-osmesa.cpp')
+endif
 
 if meson.is_cross_build()
   # ---- the guest: core.wbx --------------------------------------------------
@@ -155,13 +167,31 @@ if meson.is_cross_build()
   mbuild = meson.get_external_property('minibox_build')
   sr = meson.get_external_property('guest_sysroot')
 
+  # Mesa, for the guest. Its static archives are linked in a group because they
+  # refer to each other both ways, and the osmesa target's own object comes
+  # separately: the shared library it belongs to cannot be built for a guest
+  # (-fno-pic, -mcmodel=large), but osmesa_create_screen lives in it.
+  mesa_link = []
+  if guest_gl
+    mesa_archives = run_command('find', mesa / 'build-guest2', '-name', '*.a',
+      check: true).stdout().strip().split('\n')
+    mesa_target = run_command('find', mesa / 'build-guest2/src/gallium/targets/osmesa',
+      '-name', 'target.c.o', check: true).stdout().strip().split('\n')
+    # Mesa declares pthread_mutexattr_* WEAK as a build workaround. Statically
+    # linked they would resolve to address zero, and Mesa calls null the first
+    # time it makes a recursive mutex.
+    mesa_link = mesa_target + ['-Wl,--start-group'] + mesa_archives + ['-Wl,--end-group',
+      '-Wl,-u,pthread_mutexattr_init', '-Wl,-u,pthread_mutexattr_settype',
+      '-Wl,-u,pthread_mutexattr_destroy']
+  endif
+
   executable('core', driver_sources,
     name_suffix: 'wbx',
     include_directories: inc,
     cpp_args: pch_core,
     link_whole: ds_libs,
     link_with: [deps_lib],
-    link_args: [
+    link_args: mesa_link + [
       '-static', '-no-pie',
       '-Wl,--eh-frame-hdr', '-Wl,-O2', '-Wl,--no-relax',
       '-Wl,-z,stack-size=8388608',

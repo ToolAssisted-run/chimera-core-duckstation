@@ -70,7 +70,7 @@ util_srcs() {
 		-e "/vulkan_" -e "/d3d11_" -e "/d3d12_" -e "/d3d_common" -e "/metal_" \
 		-e "/opengl_" \
 		| sort
-	if [ -n "${CHIMERA_GUEST_MESA:-}${CHIMERA_OPENGL:-}" ]; then
+	if [ -n "${CHIMERA_GUEST_MESA:-}" ]; then
 		find "$p/src/util" -maxdepth 1 -name 'opengl_*.cpp' | grep -v \
 			-e "_egl.cpp$" -e "_wgl.cpp$" -e "_agl" -e "_glx" -e "_x11" -e "_wayland" \
 			| sort
@@ -107,6 +107,10 @@ deps_srcs() {
 	for f in imgui imgui_draw imgui_tables imgui_widgets imgui_stdlib; do
 		echo "$d/imgui/src/$f.cpp"
 	done
+	# the GL loader, when there is a GL to load
+	if [ -n "${CHIMERA_GUEST_MESA:-}" ]; then
+		echo "$d/glad/src/gl.c"
+	fi
 	# zlib and zstd: upstream takes them from the system, a core cannot
 	for f in adler32 compress crc32 deflate infback inffast inflate inftrees trees uncompr zutil; do
 		echo "extern/zlib/$f.c"
