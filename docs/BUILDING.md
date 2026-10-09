@@ -1,8 +1,8 @@
 # Building the DuckStation core
 
-This repository builds DuckStation (the PlayStation) as a sandboxed guest for
-Chimera. The result is one file, `duckstation.chimeraCore`, which Chimera
-loads. The steps below are the ones `.github/workflows/chimera.yml` runs on a
+This repository builds DuckStation (the PlayStation) and ArcadeDuck (the
+arcade boards built out of a PlayStation) as one sandboxed guest for Chimera.
+The result is one file, `duckstation.chimeraCore`, which Chimera loads. The steps below are the ones `.github/workflows/chimera.yml` runs on a
 fresh clone on a public Ubuntu runner. Cores are built on Linux; the same
 package file runs on Linux and on Windows, because the guest inside it is run
 by Chimera's sandbox (miniBox) on either.
@@ -64,11 +64,15 @@ not need them. `libegl-dev` is needed only for the GPU checks
   `packaging`, the same script makes a private venv at
   `$HOME/.cache/chimera-mesa-build-venv` (or `$MESA_BUILD_VENV`). With the
   packages above it does not.
-- Everything else is source: this repository and its three submodules,
-  `extern/duckstation`, `extern/zlib` and `extern/zstd`. Upstream's other
-  dependencies come from its own tree (`extern/duckstation/dep`). Its
-  per-title database (`data/resources/gamedb.yaml`) is compiled into the
-  core.
+- Everything else is source: this repository and its four submodules,
+  `extern/duckstation`, `extern/arcadeduck`, `extern/zlib` and `extern/zstd`.
+  Each emulator's other dependencies come from its own tree (`dep/`).
+  DuckStation's per-title database (`data/resources/gamedb.yaml`) and
+  ArcadeDuck's record of the boards and their rom sets
+  (`data/resources/arcadedb.yaml`) are compiled into the core.
+- The arcade legs' test tools read that record: `python3-yaml` (PyYAML), for
+  `waterbox/tests/make-project.py` on an arcade project and
+  `waterbox/tests/make-arcade-set.py`. The build itself does not need it.
 
 ## Get the sources
 
@@ -80,7 +84,9 @@ git submodule update --init
 
 `extern/duckstation` is pinned to `14ab642`, the last commit upstream offered
 under the GPL-3.0. **The pin does not move**, and nothing later may be copied
-in: `docs/PLAN.md` ("The pin") says why.
+in: `docs/PLAN.md` ("The pin") says why. `extern/arcadeduck` is pinned to
+ArcadeDuck's `main`; it is GPL-3.0 and alive, and that pin may move
+(`docs/PLAN.md`, "ArcadeDuck", says what a bump has to check).
 
 Chimera, with the miniBox submodule:
 
@@ -127,13 +133,27 @@ same build.
 
 ### Patches
 
-`extern/duckstation` is pinned to pristine upstream. The 11 numbered patch
-files in `patches/` are applied to it by `waterbox/apply-patches.sh`, in
-file-name order. There is no separate step: `meson.build` runs the script at
-configure time, so both `meson setup build/meson-native` and `setup-guest.sh`
-apply them. The script applies the whole series or none; run by hand on a
-patched tree it prints `already applied: all 11 patches`. `git status` then
-shows `extern/duckstation` as modified, which is expected.
+Both emulators are pinned to pristine upstream. `waterbox/apply-patches.sh`
+applies the 11 numbered patch files in `patches/` to `extern/duckstation`
+and the 13 in `patches-arcade/` to `extern/arcadeduck`, each in file-name
+order. There is no separate step: `meson.build` runs the script at configure
+time, so both `meson setup build/meson-native` and `setup-guest.sh` apply
+them. The script applies a whole series or none of it; run by hand on patched
+trees it prints `already applied: extern/duckstation, all 11 patches` and the
+same for the other. `git status` then shows both submodules as modified,
+which is expected.
+
+### One binary, two machines
+
+The two emulators began as the same commit and define the same names, so
+they are never linked against each other. Each - its three libraries, its
+dependencies and its own copy of the adapter (`waterbox/cinterface.cpp` and
+the files beside it, compiled once per tree) - is joined into one relocatable
+object by `waterbox/link-machine.sh`, in which every symbol is made local but
+one: a table of the guest ABI (`waterbox/machine.h`). `waterbox/dispatch.c`
+is the ABI the frontend calls and passes each call to the table of the
+machine the project's `machine` setting names. The step fails if an object
+offers any name but its one.
 
 ### The guest Mesa
 
@@ -183,6 +203,7 @@ with.
 | `gl_bridge` | false | native builds only: `run-wbx` gets the GPU bridge's host half (needs `libegl-dev`), for the gate's GPU checks |
 | `host_clock` | false | diagnostic, native only: upstream's host clock, the control for the `clock:virtual` check |
 | `recompiler` | false | upstream's two code generators; not built, not gated (the interpreter runs a 3D race at eight times real speed) |
+| `arcade` | true | the arcade boards: ArcadeDuck's tree beside the console's. Off, the core is the console alone |
 
 The GPU checks want a third build directory:
 
@@ -235,7 +256,22 @@ SKIP is not a pass. What runs depends on what content the machine has:
 | a 3D game | `tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue` and its image, or `CHIMERA_PS1_GAME3D` | `play:compare`, `play:rewind`; with both discs, `disc:swap` |
 | a GL context | `build/meson-gl/run-wbx` (`-Dgl_bridge=true`) | `gpu:bridge`, `gpu:machine`, `gpu:picture-after-load`, `gpu:rerecord`, `gpu:play`, `gpu:enhancements` |
 
-All 36 take about eight minutes on a 20-thread desktop. The GPU checks draw
+The arcade boards' checks need no PlayStation BIOS and run whether or not
+there is one (`./waterbox/run-gate.sh -a` runs them alone):
+
+| With | Named by | Checks |
+| --- | --- | --- |
+| nothing | - | `arcadedb:entry`, `arcade:noset` |
+| a Namco System 11 set | `tests/roms/arcade/sets/tekkenac.zip` (Tekken, Asia, TE4/VER.C) or `CHIMERA_ARCADE_NS11_SET`, and `tests/roms/arcade/namcoc76.zip` or `CHIMERA_ARCADE_NS11_BIOS` | `ns11:compare`, `ns11:rerecord`, `ns11:rewind`, `ns11:memory`, `ns11:refused`; with Chimera `ns11:engine`; with a guest Mesa `ns11:gl`; with a GL context `ns11:gpu` |
+| a Konami GQ set | `tests/roms/arcade/sets/cryptklr.zip` (Crypt Killer) or `CHIMERA_ARCADE_GQ_SET`, and its hard disk `tests/roms/arcade/420uaa04.chd` or `CHIMERA_ARCADE_GQ_DISK` | `gq:compare`, `gq:rewind` |
+
+The press scripts are written for those two sets. A set must be complete
+(non-merged) and under the names ArcadeDuck's record has, which are a current
+MAME release's; `waterbox/tests/make-arcade-set.py` rebuilds one from
+archives that hold the same roms under older names, by CRC, and invents
+nothing.
+
+All 48 take about eleven minutes on a 20-thread desktop. The GPU checks draw
 on whatever this machine's EGL hands out and name it; on a machine with no
 card that is llvmpipe, and what they prove is the bridge, not a card.
 `docs/PLAN.md` ("The gate") has what each check compares and how each was
@@ -252,11 +288,11 @@ games are yours to provide; `tests/roms/` is ignored by git wholesale.
 
 The package through the real frontend, headless under Mono and Xvfb:
 `menu:frontend`, `settings:frontend`, `disc:frontend`, `play:frontend`,
-`keybinds`. It needs Chimera built (below), the package installed,
-`run-native`, and the BIOS; `disc:frontend` needs the disc and
-`play:frontend` the 3D game, whose movie is the only one that presses
-anything. Without a BIOS all five say SKIP. Its scratch is
-`waterbox/tests/work/`.
+`arcade:frontend`, `keybinds`. It needs Chimera built (below), the package
+installed, `run-native`, and the BIOS; `disc:frontend` needs the disc,
+`play:frontend` the 3D game and `arcade:frontend` the System 11 set - the
+two whose movies press anything. Without a BIOS all six say SKIP. Its scratch
+is `waterbox/tests/work/`.
 
 The same projects run on Windows by hand: a Windows bundle
 (`tools/build-bundle.sh --platform windows` in the Chimera checkout), the
@@ -288,11 +324,12 @@ dotnet build source/gui/Chimera.sln -c Release
 
 ### What CI proves
 
-No BIOS and no game may be on a public runner, so CI runs the four checks of
-the first row, the contract tests, and the frontend gate with every check
-skipped. That proves the build from a fresh clone, the sandbox starting the
-guest, the refusal without a BIOS, and the package. It proves nothing about
-the console. Run the gates with your own content before a commit that touches
+No BIOS, no rom set and no game may be on a public runner, so CI runs the six
+checks that need nothing (four of the console's, two of the boards'), the
+contract tests, and the frontend gate with every check skipped. That proves
+the build of both emulators from a fresh clone, the sandbox starting the
+guest, each machine's refusal with nothing to run, and the package. It
+proves nothing about the console or the boards. Run the gates with your own content before a commit that touches
 the machine, and say in the commit what ran.
 
 ## Files the core needs at run time
@@ -310,6 +347,20 @@ the machine, and say in the commit what ran.
   in and go out through Chimera's save data, as `memcard1.mcd` and
   `memcard2.mcd`.
 
+An arcade board needs instead:
+
+- **A rom set**: the game's MAME set as a `.zip` under MAME's name for it,
+  complete (non-merged) and of a current MAME release, in the Rom Set slot;
+  a game's hard disk or CD beside it as a `.chd`.
+- **The board's firmware**, where it is a separate archive: `namcoc76.zip`
+  for Namco System 11. Konami GQ's is inside the game's set.
+- **Board memory**, optionally: what the board keeps with the power off, as
+  the `.nv` files Export Save Data writes (`at28c16.nv`).
+
+For the runners that is a folder with the set and the firmware archive under
+their own names, `slots` (`{"romset": ["tekkenac.zip"]}`) and `settings`
+(`{"machine": "namco_system11"}`).
+
 A work folder for `run-native` and `run-wbx` holds what the frontend would
 mount: `bios`, the disc files under their own names, `slots`
 (`{"disc": ["game.cue"]}`) and optionally `settings` (flat JSON;
@@ -322,10 +373,14 @@ build/meson-native/run-wbx build/meson-guest/core.wbx <folder> --frames 600
 
 ## Troubleshooting
 
-- **`apply-patches.sh` fails at configure.** `extern/duckstation` holds
-  something that is neither the pin nor the whole series: `git -C
-  extern/duckstation checkout . && git -C extern/duckstation clean -fd`, then
-  configure again.
+- **`apply-patches.sh` fails at configure.** A submodule holds something
+  that is neither its pin nor its whole series; the script names it. `git -C
+  <submodule> checkout . && git -C <submodule> clean -fd`, then configure
+  again - after turning any edit made there into a patch.
+- **`link-machine.sh: ... offers [...]`.** One emulator's object exports more
+  than its table: a symbol that could not be made local. `-fno-gnu-unique`
+  is what stops GCC making them; a new compiler flag or a new dependency
+  brought one back.
 - **`build:fresh` fails.** A source is newer than `core.wbx`: rebuild the
   guest. The gate will not compare yesterday's core.
 - **A flag changed and nothing rebuilt.** A change to the guest sysroot or

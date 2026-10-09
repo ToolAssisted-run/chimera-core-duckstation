@@ -2,11 +2,11 @@
   "package": "duckstation",
   "effectiveTerms": "GPL-3.0",
   "commercialUse": "allowed under the GPL",
-  "note": "The built core combines this repository's integration with DuckStation as it stood at its last GPL-3.0 commit, and is distributed under the GPL-3.0, which is that DuckStation's own licence and the strongest term in the package. Everything else it links is permissive and travels inside those terms: fmt, fast_float, simpleini, rapidyaml and Dear ImGui are MIT; xxHash, libchdr and Zstandard are BSD; zlib is under the zlib licence; the LZMA SDK is public domain. No BIOS and no game is part of this package - a PlayStation needs a ROM dump the user supplies, and it never enters this repository.",
+  "note": "The built core combines this repository's integration with two emulators: DuckStation as it stood at its last GPL-3.0 commit, which is the PlayStation, and ArcadeDuck, which is the arcade boards built out of a PlayStation and is itself derived from that same DuckStation commit under the GPL-3.0 only. The package is distributed under the GPL-3.0, which is both emulators' licence and the strongest term in it. Everything else it links is permissive and travels inside those terms: fmt, fast_float, simpleini, rapidyaml and Dear ImGui are MIT; xxHash, libchdr and Zstandard are BSD; zlib and minizip are under the zlib licence; the LZMA SDK is public domain. ArcadeDuck brings sound-chip and processor emulations of its own, each under the licence named beside it below: BSD-3-Clause for the parts that come from MAME (the M37710, the ADSP-2181, the MN10200, the ZSG-2 and the TMS57002), for ymfm and for the QSound HLE; MIT for Musashi's 68000 and for the Z80. No BIOS, no board firmware, no rom set and no game is part of this package - they are dumps the user supplies, and none ever enters this repository.",
   "components": [
     {
       "name": "chimera-core-duckstation (integration)",
-      "license": "MIT, and DuckStation's terms (GPL-3.0) for patches/, waterbox/host.cpp and waterbox/audio-stream.cpp",
+      "license": "MIT, and the emulators' terms (GPL-3.0) for patches/, patches-arcade/, waterbox/host.cpp and waterbox/audio-stream.cpp",
       "url": "https://github.com/ToolAssisted-run/chimera-core-duckstation",
       "commit": "{selfCommit}",
       "file": "LICENSE",
@@ -20,6 +20,58 @@
       "file": "extern/duckstation/LICENSE",
       "sourceUrl": "https://github.com/stenzek/duckstation/archive/{commit}.tar.gz",
       "note": "Pinned at the last commit of DuckStation offered under the GPL-3.0 (2024-09-01). Later versions are under CC BY-NC-ND 4.0 and nothing from them is in this package. Its per-title database (data/resources/gamedb.yaml) is compiled into the core."
+    },
+    {
+      "name": "ArcadeDuck",
+      "license": "GPL-3.0-only",
+      "url": "https://github.com/StillJC/ArcadeDuck",
+      "commit": "{submodule:extern/arcadeduck}",
+      "file": "extern/arcadeduck/LICENSE",
+      "sourceUrl": "https://github.com/StillJC/ArcadeDuck/archive/{commit}.tar.gz",
+      "note": "The arcade boards: Sony ZN-1 and ZN-2, Namco System 11, Konami GV and GQ. A derivative of DuckStation's last GPL-3.0 commit, compiled whole beside it. Its record of the boards and their rom sets (data/resources/arcadedb.yaml) is compiled into the core. Its own notice is NOTICE in its repository, and the licences of what it bundles are in its THIRD-PARTY-LICENSES.txt, which travels with this package."
+    },
+    {
+      "name": "ArcadeDuck third-party notices",
+      "license": "BSD-3-Clause and MIT, as listed",
+      "url": "https://github.com/StillJC/ArcadeDuck",
+      "file": "extern/arcadeduck/THIRD-PARTY-LICENSES.txt",
+      "note": "ArcadeDuck's own list of what it bundles and under which terms. The parts of it this core compiles are the ADSP-2181 (from MAME, by way of modem-dsp-emu), the MN10200, ZSG-2 and TMS57002 adapted from MAME, and the ones named separately below."
+    },
+    {
+      "name": "M37710 (from MAME)",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/mamedev/mame",
+      "file": "extern/arcadeduck/src/core/m37710/LICENSE.txt"
+    },
+    {
+      "name": "Musashi",
+      "license": "MIT",
+      "url": "https://github.com/kstenerud/Musashi",
+      "file": "extern/arcadeduck/src/core/musashi/readme.txt"
+    },
+    {
+      "name": "ymfm",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/aaronsgiles/ymfm",
+      "file": "extern/arcadeduck/src/core/arcade/third_party/ymfm/LICENSE"
+    },
+    {
+      "name": "QSound HLE",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/ValleyBell/qsound-hle",
+      "file": "extern/arcadeduck/src/core/arcade/third_party/qsound_hle/LICENSE"
+    },
+    {
+      "name": "z80 (superzazu)",
+      "license": "MIT",
+      "url": "https://github.com/superzazu/z80",
+      "file": "extern/arcadeduck/src/core/arcade/third_party/z80_superzazu/LICENSE"
+    },
+    {
+      "name": "minizip",
+      "license": "Zlib",
+      "url": "https://www.winimage.com/zLibDll/minizip.html",
+      "file": "extern/arcadeduck/dep/minizip/MiniZip64_info.txt"
     },
     {
       "name": "fmt",

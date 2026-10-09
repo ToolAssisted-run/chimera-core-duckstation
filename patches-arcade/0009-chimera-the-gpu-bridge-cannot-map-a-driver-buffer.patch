@@ -1,0 +1,59 @@
+diff --git a/src/util/opengl_device.cpp b/src/util/opengl_device.cpp
+index 3fe3fe9..9d77d50 100644
+--- a/src/util/opengl_device.cpp
++++ b/src/util/opengl_device.cpp
+@@ -22,6 +22,10 @@
+ 
+ Log_SetChannel(OpenGLDevice);
+ 
++#ifdef CHIMERA_GUEST_GL
++extern "C" bool chimera_gl_bridged();
++#endif
++
+ static constexpr const std::array<GLenum, GPUDevice::MAX_RENDER_TARGETS> s_draw_buffers = {
+   {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3}};
+ 
+@@ -396,6 +400,14 @@ bool OpenGLDevice::CheckFeatures(FeatureMask disabled_features)
+   const bool is_shitty_mobile_driver = (vendor_id_powervr || vendor_id_qualcomm || vendor_id_arm);
+   m_disable_pbo =
+     (!GLAD_GL_VERSION_4_4 && !GLAD_GL_ARB_buffer_storage && !GLAD_GL_EXT_buffer_storage) || is_shitty_mobile_driver;
++#ifdef CHIMERA_GUEST_GL
++  // A pixel buffer object is read and written through a mapping, and across
++  // the GPU bridge a mapping is a pointer into the driver (see
++  // opengl_stream_buffer.cpp). Uploads and downloads go through memory the
++  // guest owns instead.
++  if (chimera_gl_bridged())
++    m_disable_pbo = true;
++#endif
+   if (m_disable_pbo && !is_shitty_mobile_driver)
+     WARNING_LOG("Not using PBOs for texture uploads because buffer_storage is unavailable.");
+ 
+diff --git a/src/util/opengl_stream_buffer.cpp b/src/util/opengl_stream_buffer.cpp
+index 7a4fef1..9b00a19 100644
+--- a/src/util/opengl_stream_buffer.cpp
++++ b/src/util/opengl_stream_buffer.cpp
+@@ -325,10 +325,24 @@ private:
+ 
+ } // namespace
+ 
++#ifdef CHIMERA_GUEST_GL
++// chimera-core-duckstation, waterbox/gl-bridged.cpp: true only when a host GPU is drawing
++extern "C" bool chimera_gl_bridged();
++#endif
++
+ std::unique_ptr<OpenGLStreamBuffer> OpenGLStreamBuffer::Create(GLenum target, u32 size)
+ {
+   std::unique_ptr<OpenGLStreamBuffer> buf;
++#ifdef CHIMERA_GUEST_GL
++  // Not when the GPU is on the other side of a sandbox wall. Persistent
++  // mapping hands the caller a pointer into the DRIVER's memory, and a
++  // sandboxed guest cannot follow one - the sandbox stops it, correctly. The
++  // path below keeps its own buffer and uploads from it, which is a copy the
++  // mapped path avoids and the only shape that can cross this boundary.
++  if (!chimera_gl_bridged() && (GLAD_GL_VERSION_4_4 || GLAD_GL_ARB_buffer_storage || GLAD_GL_EXT_buffer_storage))
++#else
+   if (GLAD_GL_VERSION_4_4 || GLAD_GL_ARB_buffer_storage || GLAD_GL_EXT_buffer_storage)
++#endif
+   {
+     buf = BufferStorageStreamBuffer::Create(target, size);
+     if (buf)

@@ -1,0 +1,254 @@
+diff --git a/src/common/file_system.cpp b/src/common/file_system.cpp
+index e403596..5826c7e 100644
+--- a/src/common/file_system.cpp
++++ b/src/common/file_system.cpp
+@@ -982,8 +982,79 @@ std::string Path::CreateFileURL(std::string_view path)
+   return ret;
+ }
+ 
++#ifdef CHIMERA_FLAT_FILESYSTEM
++// chimera: in a sandbox the file system is FLAT, and READ ONLY.
++//
++// A waterbox guest sees exactly the files the frontend mounted, each under its
++// own name, and there are no directories at all - so a path is its last
++// component and nothing else. DuckStation builds paths the way a desktop does
++// (a data root, a folder per kind of file, then the name), which produces
++// "./bios" for a file mounted as "bios", and the open fails.
++//
++// Rather than teach every caller, the reduction happens here, at the places
++// where a path stops being a string and becomes a file. There is one
++// directory, everything is in it, and its name never appears.
++//
++// Nothing is written through a path either: there is no disk, and a core
++// that could leave something behind is a core whose next run starts from a
++// different machine. What the console must keep (memory cards) leaves through
++// the frontend's save-data channel instead.
++static bool ChimeraIsWriteMode(const char* mode)
++{
++  for (const char* c = mode; c && *c; c++)
++  {
++    if (*c == 'w' || *c == 'a' || *c == '+')
++      return true;
++  }
++  return false;
++}
++
++// One file may be known by a second name. A file the frontend opened directly
++// is mounted under a fixed name with no extension, and DuckStation decides
++// what a disc image IS by its extension; the embedder looks at the bytes and
++// says what the file should have been called (ChimeraFileAlias).
++static char s_chimera_alias_from[64];
++static char s_chimera_alias_to[64];
++
++extern "C" void ChimeraFileAlias(const char* from, const char* to)
++{
++  std::snprintf(s_chimera_alias_from, sizeof(s_chimera_alias_from), "%s", from ? from : "");
++  std::snprintf(s_chimera_alias_to, sizeof(s_chimera_alias_to), "%s", to ? to : "");
++}
++
++static const char* ChimeraFlatName(const char* path)
++{
++  if (!path)
++    return path;
++
++  const char* last = std::strrchr(path, '/');
++  const char* name = last ? (last + 1) : path;
++  if (s_chimera_alias_from[0] != '\0' && std::strcmp(name, s_chimera_alias_from) == 0)
++    return s_chimera_alias_to;
++  return name;
++}
++
++// the one directory: "", ".", "./", "/" and anything else that names no file
++static bool ChimeraIsRoot(const char* path)
++{
++  const char* name = ChimeraFlatName(path);
++  return (!name || name[0] == '\0' || (name[0] == '.' && name[1] == '\0'));
++}
++#define CHIMERA_FLATTEN(name) name = ChimeraFlatName(name)
++#else
++#define CHIMERA_FLATTEN(name) ((void)0)
++#endif
++
+ std::FILE* FileSystem::OpenCFile(const char* filename, const char* mode, Error* error)
+ {
++  CHIMERA_FLATTEN(filename);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  if (ChimeraIsWriteMode(mode))
++  {
++    Error::SetErrno(error, EROFS);
++    return nullptr;
++  }
++#endif
+ #ifdef _WIN32
+   const std::wstring wfilename = GetWin32Path(filename);
+   const std::wstring wmode = StringUtil::UTF8StringToWideString(mode);
+@@ -1019,6 +1090,11 @@ std::FILE* FileSystem::OpenCFile(const char* filename, const char* mode, Error*
+ 
+ std::FILE* FileSystem::OpenExistingOrCreateCFile(const char* filename, s32 retry_ms, Error* error /*= nullptr*/)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  // opened for update, created if missing: both are writes
++  Error::SetErrno(error, EROFS);
++  return nullptr;
++#endif
+ #ifdef _WIN32
+   const std::wstring wfilename = GetWin32Path(filename);
+   if (wfilename.empty())
+@@ -1110,6 +1186,14 @@ std::FILE* FileSystem::OpenExistingOrCreateCFile(const char* filename, s32 retry
+ 
+ int FileSystem::OpenFDFile(const char* filename, int flags, int mode, Error* error)
+ {
++  CHIMERA_FLATTEN(filename);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  if ((flags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)) != 0)
++  {
++    Error::SetErrno(error, EROFS);
++    return -1;
++  }
++#endif
+ #ifdef _WIN32
+   const std::wstring wfilename(GetWin32Path(filename));
+   if (!wfilename.empty())
+@@ -1126,6 +1210,14 @@ int FileSystem::OpenFDFile(const char* filename, int flags, int mode, Error* err
+ 
+ std::FILE* FileSystem::OpenSharedCFile(const char* filename, const char* mode, FileShareMode share_mode, Error* error)
+ {
++  CHIMERA_FLATTEN(filename);
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  if (ChimeraIsWriteMode(mode))
++  {
++    Error::SetErrno(error, EROFS);
++    return nullptr;
++  }
++#endif
+ #ifdef _WIN32
+   const std::wstring wfilename = GetWin32Path(filename);
+   const std::wstring wmode = StringUtil::UTF8StringToWideString(mode);
+@@ -1205,6 +1297,10 @@ void FileSystem::AtomicRenamedFileDeleter::discard()
+ FileSystem::AtomicRenamedFile FileSystem::CreateAtomicRenamedFile(std::string filename, const char* mode,
+                                                                   Error* error /*= nullptr*/)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  Error::SetErrno(error, EROFS);
++  return AtomicRenamedFile(nullptr, AtomicRenamedFileDeleter({}, {}));
++#endif
+   std::string temp_filename;
+   std::FILE* fp = nullptr;
+   if (!filename.empty())
+@@ -2329,6 +2425,13 @@ static u32 RecursiveFindFiles(const char* OriginPath, const char* ParentPath, co
+ 
+ bool FileSystem::FindFiles(const char* path, const char* pattern, u32 flags, FindResultsArray* results)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  // Nothing is found by looking: a core is told the name of every file it
++  // has, and the order a directory lists its entries in is the host's.
++  if (!(flags & FILESYSTEM_FIND_KEEP_ARRAY))
++    results->clear();
++  return false;
++#endif
+   // clear result array
+   if (!(flags & FILESYSTEM_FIND_KEEP_ARRAY))
+     results->clear();
+@@ -2365,6 +2468,7 @@ bool FileSystem::FindFiles(const char* path, const char* pattern, u32 flags, Fin
+ 
+ bool FileSystem::StatFile(const char* path, struct stat* st)
+ {
++  CHIMERA_FLATTEN(path);
+   return stat(path, st) == 0;
+ }
+ 
+@@ -2379,6 +2483,7 @@ bool FileSystem::StatFile(std::FILE* fp, struct stat* st)
+ 
+ bool FileSystem::StatFile(const char* path, FILESYSTEM_STAT_DATA* sd)
+ {
++  CHIMERA_FLATTEN(path);
+   // stat file
+   struct stat sysStatData;
+   if (stat(path, &sysStatData) < 0)
+@@ -2416,6 +2521,11 @@ bool FileSystem::StatFile(std::FILE* fp, FILESYSTEM_STAT_DATA* sd)
+ 
+ bool FileSystem::FileExists(const char* path)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  if (ChimeraIsRoot(path))
++    return false;
++#endif
++  CHIMERA_FLATTEN(path);
+   struct stat sysStatData;
+   if (stat(path, &sysStatData) < 0)
+     return false;
+@@ -2428,6 +2538,9 @@ bool FileSystem::FileExists(const char* path)
+ 
+ bool FileSystem::DirectoryExists(const char* path)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  return ChimeraIsRoot(path);
++#endif
+   struct stat sysStatData;
+   if (stat(path, &sysStatData) < 0)
+     return false;
+@@ -2437,6 +2550,9 @@ bool FileSystem::DirectoryExists(const char* path)
+ 
+ bool FileSystem::IsRealDirectory(const char* path)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  return ChimeraIsRoot(path);
++#endif
+   struct stat sysStatData;
+   if (lstat(path, &sysStatData) < 0)
+     return false;
+@@ -2446,6 +2562,9 @@ bool FileSystem::IsRealDirectory(const char* path)
+ 
+ bool FileSystem::IsDirectoryEmpty(const char* path)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  return !ChimeraIsRoot(path);
++#endif
+   DIR* pDir = opendir(path);
+   if (pDir == nullptr)
+     return true;
+@@ -2470,6 +2589,12 @@ bool FileSystem::IsDirectoryEmpty(const char* path)
+ 
+ bool FileSystem::CreateDirectory(const char* path, bool recursive, Error* error)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  if (ChimeraIsRoot(path))
++    return true;
++  Error::SetErrno(error, EROFS);
++  return false;
++#endif
+   // has a path
+   const size_t pathLength = std::strlen(path);
+   if (pathLength == 0)
+@@ -2548,6 +2673,10 @@ bool FileSystem::CreateDirectory(const char* path, bool recursive, Error* error)
+ 
+ bool FileSystem::DeleteFile(const char* path, Error* error)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  Error::SetErrno(error, EROFS);
++  return false;
++#endif
+   struct stat sysStatData;
+   if (stat(path, &sysStatData) != 0 || S_ISDIR(sysStatData.st_mode))
+   {
+@@ -2566,6 +2695,10 @@ bool FileSystem::DeleteFile(const char* path, Error* error)
+ 
+ bool FileSystem::RenamePath(const char* old_path, const char* new_path, Error* error)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  Error::SetErrno(error, EROFS);
++  return false;
++#endif
+   if (rename(old_path, new_path) != 0)
+   {
+     const int err = errno;
+@@ -2578,6 +2711,9 @@ bool FileSystem::RenamePath(const char* old_path, const char* new_path, Error* e
+ 
+ bool FileSystem::DeleteDirectory(const char* path)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  return false;
++#endif
+   struct stat sysStatData;
+   if (stat(path, &sysStatData) != 0 || !S_ISDIR(sysStatData.st_mode))
+     return false;

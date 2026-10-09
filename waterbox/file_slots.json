@@ -1,5 +1,5 @@
 {
-  "_comment": "The core-declared file form for chimera's project wizard. A PlayStation project is its discs, in the order the game asks for them - or a program to run in place of one - and, if it starts from somebody's progress, the memory cards. The BIOS is not here: it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
+  "_comment": "The core-declared file form for chimera's project wizard. A PlayStation project is its discs, in the order the game asks for them - or a program to run in place of one - and, if it starts from somebody's progress, the memory cards. The BIOS is not here: it is firmware, which the frontend resolves once and remembers, rather than something a project carries. An arcade board's project is a MAME rom set instead, and what the board keeps in its own non-volatile memory: the machine setting decides which slots are shown.",
   "slots": [
     {
       "id": "disc",
@@ -18,7 +18,11 @@
         "psexe",
         "ps-exe"
       ],
-      "help": "What the console runs. Usually a CD image: a .cue with the .bin files it names beside it, a .chd, a single .bin, .img or .iso of one data track, a PlayStation Store .pbp, or an .ecm. A game of several discs lists them all, in order: the first is in the drive at power-on, and the Next Disc, Previous Disc and Disc Swap controls change it when the game asks. It can also be one PlayStation EXECUTABLE (.exe, .psexe, .ps-exe), which is what homebrew and test programs ship as: the tray stays empty and the console is handed the program once its own ROM has started. With nothing here the console boots to its own menu."
+      "help": "What the console runs. Usually a CD image: a .cue with the .bin files it names beside it, a .chd, a single .bin, .img or .iso of one data track, a PlayStation Store .pbp, or an .ecm. A game of several discs lists them all, in order: the first is in the drive at power-on, and the Next Disc, Previous Disc and Disc Swap controls change it when the game asks. It can also be one PlayStation EXECUTABLE (.exe, .psexe, .ps-exe), which is what homebrew and test programs ship as: the tray stays empty and the console is handed the program once its own ROM has started. With nothing here the console boots to its own menu.",
+      "exposedWhen": {
+        "setting": "machine",
+        "is": "playstation"
+      }
     },
     {
       "id": "savedata",
@@ -28,7 +32,46 @@
       "formats": [
         "mcd"
       ],
-      "help": "Memory cards the console starts with, for a project that begins from somebody's saved game. A card is a raw 131072-byte image named for its slot: memcard1.mcd for slot 1, memcard2.mcd for slot 2 (a .mcr or .mc from another emulator is the same file under another name - rename it). Emulator > Export Save Data writes the cards back out under the same names. A card under any other name is refused, rather than ignored."
+      "help": "Memory cards the console starts with, for a project that begins from somebody's saved game. A card is a raw 131072-byte image named for its slot: memcard1.mcd for slot 1, memcard2.mcd for slot 2 (a .mcr or .mc from another emulator is the same file under another name - rename it). Emulator > Export Save Data writes the cards back out under the same names. A card under any other name is refused, rather than ignored.",
+      "exposedWhen": {
+        "setting": "machine",
+        "is": "playstation"
+      }
+    },
+    {
+      "id": "romset",
+      "title": "Rom set",
+      "min": 1,
+      "max": 3,
+      "formats": [
+        "zip",
+        "chd"
+      ],
+      "help": "The game's MAME rom set: the .zip, named exactly as MAME names it (tekken.zip, cryptklr.zip), because the name is how the set is recognised - a renamed zip is an unknown game. It must be a complete (non-merged) set of a current MAME release: every rom the game needs under the name MAME gives it now, a clone's shared roms included. A game with a hard disk or a CD has it as a .chd, named as MAME names it (420uaa04.chd); put it here beside the zip. The board's own firmware, where it is a separate archive, comes from the firmware list and not from here.",
+      "exposedWhen": {
+        "setting": "machine",
+        "in": [
+          "namco_system11",
+          "konami_gq"
+        ]
+      }
+    },
+    {
+      "id": "boardmemory",
+      "title": "Board memory",
+      "min": 0,
+      "max": 4,
+      "formats": [
+        "nv"
+      ],
+      "help": "What the board keeps with the power off: the EEPROM with the operator's settings and the high scores, a flash card. Optional - without it the board starts blank, as a new one did, and may spend its first boot initialising it. The files are the ones Export Save Data writes, and are read by their names (at28c16.nv, eeprom.nv): the board says which it keeps, and a file under another name is refused.",
+      "exposedWhen": {
+        "setting": "machine",
+        "in": [
+          "namco_system11",
+          "konami_gq"
+        ]
+      }
     }
   ]
 }

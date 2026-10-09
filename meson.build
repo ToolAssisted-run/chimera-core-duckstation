@@ -99,6 +99,12 @@ add_project_arguments(defs, language: ['c', 'cpp'])
 # and nothing else: GCC's SSE headers take a non-const pointer where clang's
 # take a const one, and the difference is an error only by default.
 add_project_arguments(['-fno-exceptions', '-fno-rtti', '-fpermissive'], language: ['cpp'])
+# The static variable of an inline function is, by GCC's default, a symbol of
+# a binding all its own (STB_GNU_UNIQUE): one definition for the whole process,
+# whatever anybody says. There are two emulators in this process and each
+# keeps its own of everything (waterbox/link-machine.sh), so they are ordinary
+# weak symbols here, which that step can make local like the rest.
+add_project_arguments(['-fno-gnu-unique'], language: ['cpp'])
 
 inc = include_directories(
   ds / 'src',
@@ -142,9 +148,60 @@ ds_util = static_library('duckstation-util', util_sources, include_directories: 
 ds_core = static_library('duckstation-core', core_sources, include_directories: inc, cpp_args: pch_core)
 ds_libs = [ds_core, ds_util, ds_common]
 
+# ---- the arcade boards: a second tree ---------------------------------------
+#
+# ArcadeDuck began as the console's pinned commit and is its own emulator now:
+# it took the console's pads and memory cards out and changed the bus, the
+# GPU and the system underneath its boards. So it is not patched into the
+# console - it is compiled WHOLE, from its own submodule, with the same flags
+# and the same source shape, and joined to the console at the end as one
+# object whose every name but one is local (see "one binary, two machines").
+arcade = get_option('arcade')
+if arcade
+  ad = 'extern/arcadeduck'
+  ad_abs = meson.current_source_dir() / ad
+  inc_ad = include_directories(
+    ad / 'src',
+    ad / 'dep/fmt/include',
+    ad / 'dep/fast_float/include',
+    ad / 'dep/simpleini/include',
+    ad / 'dep/imgui/include',
+    ad / 'dep/rapidyaml/include',
+    ad / 'dep/xxhash/include',
+    ad / 'dep/libchdr/include',
+    ad / 'dep/lzma/include',
+    ad / 'dep/xbyak/xbyak',
+    ad / 'dep/glad/include',
+    ad / 'dep/ffmpeg/include',
+    ad / 'dep/minizip/include',
+    'extern/zlib',
+    'extern/zstd/lib',
+    'waterbox',
+    'waterbox/stubs',
+    ad / 'data/resources',
+  )
+  ad_args = ['-DCHIMERA_ARCADE']
+  ad_common_sources = files(run_command(sources_sh, 'common', 'arcade', env: sources_env, check: true).stdout().strip().split('\n'))
+  ad_util_sources = files(run_command(sources_sh, 'util', 'arcade', env: sources_env, check: true).stdout().strip().split('\n'))
+  ad_core_sources = files(run_command(sources_sh, 'core', 'arcade', env: sources_env, check: true).stdout().strip().split('\n'))
+  ad_dep_sources = files(run_command(sources_sh, 'deps', 'arcade', env: sources_env, check: true).stdout().strip().split('\n'))
+  ad_deps_lib = static_library('arcadeduck-deps', ad_dep_sources, include_directories: inc_ad,
+    c_args: ad_args, cpp_args: ad_args)
+  ad_common = static_library('arcadeduck-common', ad_common_sources, include_directories: inc_ad,
+    c_args: ad_args, cpp_args: ad_args)
+  ad_util = static_library('arcadeduck-util', ad_util_sources, include_directories: inc_ad,
+    c_args: ad_args, cpp_args: ad_args + pch_util)
+  ad_core = static_library('arcadeduck-core', ad_core_sources, include_directories: inc_ad,
+    c_args: ad_args, cpp_args: ad_args + pch_core)
+endif
+
 # What a sandbox answers differently from a desktop. Each file says what it
 # refuses and why; none of them patch upstream.
-driver_sources = files(
+#
+# They are compiled once for each emulator (machine_sources), against that
+# emulator's headers; waterbox/dispatch.c is compiled once, and is the guest
+# ABI itself.
+machine_sources = files(
   'waterbox/cinterface.cpp',
   'waterbox/host.cpp',
   'waterbox/audio-stream.cpp',
@@ -155,8 +212,10 @@ driver_sources = files(
   'waterbox/stubs/posix-stubs.cpp',
 )
 if not recompiler
-  driver_sources += files('waterbox/stubs/no-recompiler.cpp')
+  machine_sources += files('waterbox/stubs/no-recompiler.cpp')
 endif
+dispatch_sources = files('waterbox/dispatch.c')
+dispatch_args = arcade ? ['-DCHIMERA_HAS_ARCADE'] : []
 if guest_gl
   # The GPU bridge's guest half: a wrapper per GL entry point that hands the
   # call to the host, and the context object upstream asks for. Compiled in
@@ -172,7 +231,38 @@ if guest_gl
       ds_abs / 'dep/glad/include/glad/gl.h',
       mb / 'source/gl/gl-entry-points.txt',
       '@OUTDIR@', '--only', '@INPUT@'])
-  driver_sources += [files('waterbox/gl-osmesa.cpp', 'waterbox/gl-bridged.cpp'), gl_bridge_guest[0]]
+  machine_sources += [files('waterbox/gl-osmesa.cpp', 'waterbox/gl-bridged.cpp'), gl_bridge_guest[0]]
+endif
+
+# ---- one binary, two machines -------------------------------------------------
+#
+# Each emulator - its three libraries, its dependencies and its copy of the
+# adapter - is joined into one object whose only global name is its table of
+# the guest ABI (waterbox/machine.h, waterbox/link-machine.sh). The console's
+# was always linked the plain way and still could be; it goes through the same
+# step so that the two are built the same way and neither can lean on a name
+# of the other's by accident.
+shim_args = meson.is_cross_build() ? [] : ['-I' + mb / 'source/guest/include', '-I' + mb / 'extern/jsmn']
+link_machine = files('waterbox/link-machine.sh')
+cc_cmd = meson.get_compiler('c').cmd_array()
+
+console_adapter = static_library('console-adapter', machine_sources,
+  include_directories: [native_inc, inc],
+  c_args: shim_args, cpp_args: pch_core + shim_args)
+machines = [custom_target('console-machine',
+  output: 'console-machine.o',
+  input: [console_adapter, ds_core, ds_util, ds_common, deps_lib],
+  command: [link_machine, '@OUTPUT@', 'chimera_machine_console', cc_cmd, '--',
+    '@INPUT0@', '@INPUT1@', '@INPUT2@', '@INPUT3@', '--', '@INPUT4@'])]
+if arcade
+  arcade_adapter = static_library('arcade-adapter', machine_sources + files('waterbox/stubs/arcade.cpp'),
+    include_directories: [native_inc, inc_ad],
+    c_args: ad_args + shim_args, cpp_args: ad_args + pch_core + shim_args)
+  machines += custom_target('arcade-machine',
+    output: 'arcade-machine.o',
+    input: [arcade_adapter, ad_core, ad_util, ad_common, ad_deps_lib],
+    command: [link_machine, '@OUTPUT@', 'chimera_machine_arcade', cc_cmd, '--',
+      '@INPUT0@', '@INPUT1@', '@INPUT2@', '@INPUT3@', '--', '@INPUT4@'])
 endif
 
 if meson.is_cross_build()
@@ -199,12 +289,9 @@ if meson.is_cross_build()
       '-Wl,-u,pthread_mutexattr_destroy']
   endif
 
-  executable('core', driver_sources,
+  executable('core', dispatch_sources, machines,
     name_suffix: 'wbx',
-    include_directories: inc,
-    cpp_args: pch_core,
-    link_whole: ds_libs,
-    link_with: [deps_lib],
+    c_args: dispatch_args,
     link_args: mesa_link + [
       '-static', '-no-pie',
       '-Wl,--eh-frame-hdr', '-Wl,-O2', '-Wl,--no-relax',
@@ -221,12 +308,10 @@ else
   dl = meson.get_compiler('c').find_library('dl', required: false)
   m = meson.get_compiler('c').find_library('m', required: false)
 
-  executable('run-native', driver_sources + files('waterbox/run-native.c'),
-    include_directories: [include_directories('waterbox/native-shim'), inc],
-    c_args: ['-I' + mb / 'source/guest/include', '-I' + mb / 'extern/jsmn'],
-    cpp_args: pch_core + ['-I' + mb / 'source/guest/include', '-I' + mb / 'extern/jsmn'],
-    link_whole: ds_libs,
-    link_with: [deps_lib],
+  executable('run-native', dispatch_sources + files('waterbox/run-native.c'), machines,
+    include_directories: [include_directories('waterbox/native-shim')],
+    c_args: dispatch_args + shim_args,
+    link_language: 'cpp',
     dependencies: [threads, dl, m])
 
   mbhost = mb / 'build/meson-cpp/source/host'

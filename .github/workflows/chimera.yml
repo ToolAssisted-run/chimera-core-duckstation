@@ -3,11 +3,13 @@ name: chimera waterbox core
 # The core as Chimera ships it: a sandboxed core.wbx package.
 #
 # What this job can prove on a public runner is bounded by content. A
-# PlayStation runs nothing without its ROM, and the ROM is Sony's, so no
-# console instruction is executed here. What CI proves is that both flavors
-# BUILD from a clean checkout, that the sandbox loads and starts the guest,
-# that a machine with no BIOS refuses and says why in both of them, that the
-# per-title database is compiled in, that the package's declarations hold
+# PlayStation runs nothing without its ROM, and the ROM is Sony's; an arcade
+# board runs nothing without a rom set, and that is somebody's too. So no
+# instruction of either machine is executed here. What CI proves is that both
+# emulators BUILD from a clean checkout in both flavors, that the sandbox
+# loads and starts the guest, that each machine refuses and says why when it
+# has nothing to run, that the per-title database and the record of the
+# arcade boards are compiled in, that the package's declarations hold
 # together, and that Chimera's own contract tests accept the package.
 #
 # Everything else the gates check - equivalence with the native build, the
@@ -15,8 +17,8 @@ name: chimera waterbox core
 # GPU bridge, memory cards, discs, a game played into a race, the package
 # through the frontend - needs a BIOS or a game, reports SKIP here, and is
 # run by hand against the developer's own content. waterbox/run-gate.sh says
-# so on every line: 4 checks run here, 32 skip, and the frontend gate skips
-# all 5 of its own.
+# so on every line: 6 checks run here, 42 skip, and the frontend gate skips
+# all 6 of its own.
 
 on:
   pull_request:
@@ -57,8 +59,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # extern/duckstation, extern/zlib, extern/zstd. Not recursive: the
-          # core builds with what upstream carries in its own tree (dep/).
+          # extern/duckstation, extern/arcadeduck, extern/zlib, extern/zstd. Not
+          # recursive: each emulator builds with what it carries in its own
+          # tree (dep/).
           submodules: true
 
       - name: Check out Chimera
@@ -132,7 +135,7 @@ jobs:
         run: ./waterbox/build-package.sh -m "$PWD/chimera-checkout/extern/chimera-common-minibox" -r "$PWD/chimera-checkout"
 
       - name: Core gate
-        # Four checks run here; the rest say SKIP and why (the header of this
+        # Six checks run here; the rest say SKIP and why (the header of this
         # file). The gate tests the core.wbx the package step just built.
         env:
           CHIMERA_ROOT: ${{ github.workspace }}/chimera-checkout

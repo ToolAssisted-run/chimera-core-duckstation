@@ -76,7 +76,7 @@ game3d="${CHIMERA_PS1_GAME3D:-}"
 [ -n "$game3d" ] || { [ -f "$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue" ] && game3d="$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue"; }
 
 if [ -z "$bios" ]; then
-	for leg in menu:frontend settings:frontend disc:frontend play:frontend keybinds; do
+	for leg in menu:frontend settings:frontend disc:frontend play:frontend arcade:frontend keybinds; do
 		report "$leg" SKIP "needs a PlayStation BIOS: tests/roms/bios/PSX_4.1(A).bin, or CHIMERA_PS1_BIOS=<file>"
 	done
 	echo
@@ -114,6 +114,8 @@ python3 "$here/settings-config.py" "$config" "$work/config.base.ini" '{}' "{\"bi
 
 SLICE=1048576
 firmware_args=("--firmware=bios=$bios")
+# the same, as chimera-run takes it (the shape run: which controls are live)
+crun_firmware=(--firmware "bios=$bios")
 
 # A project and its native twin. <tag> <frames> then make-project.py's
 # arguments (settings, slot files). The row of the movie is the engine's to
@@ -121,11 +123,11 @@ firmware_args=("--firmware=bios=$bios")
 run_project() {
 	local tag="$1" nframes="$2"; shift 2
 	local job="$work/job.$tag.txt"
-	printf 'frames=%s\nout=%s/%s.ram.bin\nmeta=%s/%s.meta.txt\nshot=\nbytes=%s\n' "$nframes" "$work" "$tag" "$work" "$tag" "$SLICE" > "$job"
+	printf 'frames=%s\nout=%s/%s.ram.bin\nmeta=%s/%s.meta.txt\nshot=\nbytes=%s\nsystem=%s\n' "$nframes" "$work" "$tag" "$work" "$tag" "$SLICE" "${run_system:-PS1}" > "$job"
 	rm -f "$work/$tag.ram.bin" "$work/$tag.meta.txt"
 	python3 "$here/make-project.py" "$package" "$work/$tag.shape.chimeraProject" 0 "$@" > "$work/$tag.log" 2>&1 || return 1
 	"$crun" --project "$work/$tag.shape.chimeraProject" "$package" --files "$work" \
-		--firmware "bios=$bios" --frames 1 --record "$work/$tag.shape.txt" >> "$work/$tag.log" 2>&1
+		"${crun_firmware[@]}" --frames 1 --record "$work/$tag.shape.txt" >> "$work/$tag.log" 2>&1
 	local row; row="$(head -1 "$work/$tag.shape.txt" 2>/dev/null)"
 	[ -n "$row" ] || return 1
 	python3 "$here/make-project.py" "$package" "$work/$tag.chimeraProject" "$nframes" "--idle-row=$row" "$@" >> "$work/$tag.log" 2>&1 || return 1
@@ -235,6 +237,60 @@ else
 		report "play:frontend" FAIL "Main RAM differs from the native reference$(cmp -s "$work/native.playidle.ram.bin" "$work/play.ram.bin" && echo ": it is the IDLE game's - the movie's presses never reached the pad")"
 	else
 		report "play:frontend" PASS "$pframes frames of a movie that presses its way from boot into a race: Main RAM identical to the native reference given the same presses, and not the idle game's"
+	fi
+fi
+
+# --- the other machine in the package: an arcade board, from a project ---------
+# Tekken on Namco System 11: a rom set in the Rom Set slot, the board's sound
+# processor's rom as firmware, the machine setting, and a movie that puts two
+# coins in, presses Start and fights - on the arcade panel's own wire, which
+# is not the console's. The reference is the native build given the same
+# presses by index (4 Start, 5 Coin, 6 and 8 two of the buttons).
+ns11="${CHIMERA_ARCADE_NS11_SET:-}"
+[ -n "$ns11" ] || { [ -f "$root/tests/roms/arcade/sets/tekkenac.zip" ] && ns11="$root/tests/roms/arcade/sets/tekkenac.zip"; }
+ns11bios="${CHIMERA_ARCADE_NS11_BIOS:-}"
+[ -n "$ns11bios" ] || { [ -f "$root/tests/roms/arcade/namcoc76.zip" ] && ns11bios="$root/tests/roms/arcade/namcoc76.zip"; }
+if [ -z "$ns11" ] || [ -z "$ns11bios" ]; then
+	report "arcade:frontend" SKIP "needs tests/roms/arcade/sets/tekkenac.zip (CHIMERA_ARCADE_NS11_SET) and tests/roms/arcade/namcoc76.zip (CHIMERA_ARCADE_NS11_BIOS)"
+else
+	aframes=2400
+	n_press=(--press 700:6:5 --press 760:6:5 --press 860:6:4 --press 1000:6:6 --press 1100:6:6)
+	m_press=("--press=700:6:P1 Coin" "--press=760:6:P1 Coin" "--press=860:6:P1 Start" "--press=1000:6:P1 Button 1" "--press=1100:6:P1 Button 1")
+	for f in $(seq 1500 60 2340); do
+		n_press+=(--press "$f:5:6" --press "$((f + 20)):5:8")
+		m_press+=("--press=$f:5:P1 Button 1" "--press=$((f + 20)):5:P1 Button 3")
+	done
+	wd="$work/native.arcade"; rm -rf "$wd"; mkdir -p "$wd"
+	cp "$ns11" "$wd/tekkenac.zip"; cp "$ns11bios" "$wd/namcoc76.zip"
+	printf '{"romset":["tekkenac.zip"]}' > "$wd/slots"; printf '{"machine":"namco_system11"}' > "$wd/settings"
+	cp "$ns11" "$work/tekkenac.zip"
+	python3 "$here/settings-config.py" "$work/config.base.ini" "$work/config.arcade.ini" '{}' "{\"bios\": \"$bios\", \"namcoc76.zip\": \"$ns11bios\"}"
+	arcade_ok=1
+	"$rn" "$wd" --frames "$aframes" "${n_press[@]}" --dump-domain "Main RAM" "$work/native.arcade.ram.full" > "$work/native.arcade.txt" 2>&1 || arcade_ok=0
+	"$rn" "$wd" --frames "$aframes" --dump-domain "Main RAM" "$work/native.arcadeidle.ram.full" > /dev/null 2>&1 || arcade_ok=0
+	head -c "$SLICE" "$work/native.arcade.ram.full" > "$work/native.arcade.ram.bin"
+	head -c "$SLICE" "$work/native.arcadeidle.ram.full" > "$work/native.arcadeidle.ram.bin"
+	# the board's firmware in place of the console's, for this one project
+	console_firmware=("${firmware_args[@]}"); console_crun_firmware=("${crun_firmware[@]}")
+	firmware_args=("--firmware=namcoc76.zip=$ns11bios"); crun_firmware=(--firmware "namcoc76.zip=$ns11bios")
+	run_config="$work/config.arcade.ini"; run_system=NAMCOS11
+	arcade_ran=1
+	run_project "arcade" "$aframes" "--arcadedb=$root/extern/arcadeduck/data/resources/arcadedb.yaml" \
+		"--firmware=namcoc76.zip=$ns11bios" --set=machine=namco_system11 "${m_press[@]}" "romset=$ns11" || arcade_ran=0
+	firmware_args=("${console_firmware[@]}"); crun_firmware=("${console_crun_firmware[@]}")
+	unset run_config run_system
+	if [ "$arcade_ok" -ne 1 ]; then
+		report "arcade:frontend" FAIL "native runner error (see tests/work/native.arcade.txt)"
+	elif cmp -s "$work/native.arcade.ram.bin" "$work/native.arcadeidle.ram.bin"; then
+		report "arcade:frontend" FAIL "the reference with the presses and the one without built the same RAM: the script reaches nothing"
+	elif [ "$arcade_ran" -ne 1 ]; then
+		report "arcade:frontend" FAIL "no OK meta (see tests/work/arcade.log)"
+	elif ! cmp -s "$work/native.arcade.ram.bin" "$work/arcade.ram.bin"; then
+		report "arcade:frontend" FAIL "Main RAM differs from the native reference$(cmp -s "$work/native.arcadeidle.ram.bin" "$work/arcade.ram.bin" && echo ": it is the IDLE board's - the movie's presses never reached the panel")"
+	elif [ "$(sed -n 's/^ramsize=//p' "$work/arcade.meta.txt")" != "4194304" ]; then
+		report "arcade:frontend" FAIL "Main RAM is $(sed -n 's/^ramsize=//p' "$work/arcade.meta.txt") bytes, want 4194304"
+	else
+		report "arcade:frontend" PASS "$aframes frames of Tekken on Namco System 11 from a project, coins and a fight in its movie: Main RAM identical to the native reference given the same presses, and not the idle board's"
 	fi
 fi
 

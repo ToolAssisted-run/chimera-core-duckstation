@@ -12,7 +12,9 @@
 // SPDX-License-Identifier: GPL-3.0
 
 #include "core/achievements.h"
+#ifndef CHIMERA_ARCADE
 #include "core/controller.h"
+#endif
 #include "core/fullscreen_ui.h"
 #include "core/game_list.h"
 #include "core/gpu.h"

@@ -1,7 +1,8 @@
 # AGENTS.md - DuckStation core for Chimera
 
-This repository builds DuckStation (the PlayStation) as a sandboxed guest for
-Chimera, a frontend for tool-assisted speedruns. It produces one file,
+This repository builds DuckStation (the PlayStation) and ArcadeDuck (the
+arcade boards built out of a PlayStation) as one sandboxed guest for Chimera,
+a frontend for tool-assisted speedruns. It produces one file,
 `duckstation.chimeraCore`, which Chimera loads from its `Cores` folder. The
 same sources are also built natively as a reference, and the gate holds the
 two byte-identical. `.github/workflows/chimera.yml` is the authoritative
@@ -18,14 +19,22 @@ and retyped. A fix this core needs is written here, as a patch, from the
 GPL sources and the hardware's behaviour. `docs/PLAN.md` ("The pin") has the
 analysis.
 
+`extern/arcadeduck` is a different case: GPL-3.0 and alive, so its pin may
+move. A bump re-reads what `docs/PLAN.md` ("ArcadeDuck") lists - that nothing
+in it came from DuckStation after the relicence, and that every write under
+`nvram/` still passes the board's own live array.
+
 ## Layout
 
-- `extern/duckstation` - upstream, a pinned submodule. Never edited in place.
+- `extern/duckstation` - the console's emulator, a pinned submodule. Never edited in place.
+- `extern/arcadeduck` - the arcade boards' emulator, a pinned submodule. Never edited in place.
 - `extern/zlib`, `extern/zstd` - pinned submodules the core links.
-- `patches/` - 11 numbered patch files applied to `extern/duckstation`.
-- `meson.build`, `meson_options.txt` - one build for both flavors (`minibox_dir`, `mesa_guest_dir`, `gl_bridge`, `host_clock`, `recompiler`).
-- `waterbox/sources.sh` - the curated list of upstream sources both flavors compile.
-- `waterbox/cinterface.cpp` - the guest ABI: frames, input, video, audio, memory domains, save data, the drive.
+- `patches/` - 11 numbered patch files applied to `extern/duckstation`; `patches-arcade/` - 13 applied to `extern/arcadeduck`.
+- `meson.build`, `meson_options.txt` - one build for both flavors (`minibox_dir`, `mesa_guest_dir`, `gl_bridge`, `host_clock`, `recompiler`, `arcade`).
+- `waterbox/sources.sh` - the curated list of sources both flavors compile, for either tree (`sources.sh <group> [console|arcade]`).
+- `waterbox/machine.h`, `dispatch.c`, `link-machine.sh` - one binary, two machines: each emulator linked into an object with one global name, and the guest ABI that picks between them.
+- `waterbox/cinterface.cpp` - the adapter, compiled once per tree: frames, video, audio, memory domains, the GPU. `machine-console.inc` and `machine-arcade.inc` are what differs: what is plugged in, what is booted, what is saved.
+- `waterbox/stubs/arcade.cpp` - what ArcadeDuck asks a desktop for (cabinet outputs, sockets, crosshairs), answered for a sandbox.
 - `waterbox/host.cpp`, `audio-stream.cpp` - upstream's host and audio interfaces, answered for a core with no window and no sound card (GPL-3.0: made from upstream's files).
 - `waterbox/memory-device.cpp` - the graphics device made of memory the software renderer presents to.
 - `waterbox/gl-osmesa.cpp`, `gl-bridged.cpp`, `gl-host.c`, `gl-entry-points.txt` - OpenGL in the sandbox, and the GPU bridge's guest and host halves.
@@ -34,8 +43,8 @@ analysis.
 - `waterbox/run-native.c`, `run-wbx.c`, `gate-harness.h` - the native reference and the sandbox driver.
 - `waterbox/apply-patches.sh`, `setup-mesa.sh`, `setup-guest.sh`, `build-package.sh`, `run-gate.sh` - the build and the core gate.
 - `waterbox/waterbox.config`, `file_slots.json`, `default_keybinds.json`, `package-licenses.json` - what the package declares to Chimera.
-- `waterbox/tests/` - the frontend gate (`run-frontend.sh`) and its helpers.
-- `tests/roms/` - your own BIOS and discs, ignored wholesale. Nothing in it is tracked.
+- `waterbox/tests/` - the frontend gate (`run-frontend.sh`) and its helpers; `make-arcade-set.py` rebuilds a rom set under current names.
+- `tests/roms/` - your own BIOS, discs and rom sets, ignored wholesale. Nothing in it is tracked.
 - `build/` - every build output. Ignored by git.
 
 ## Set up the build environment
@@ -99,16 +108,19 @@ CHIMERA_ROOT="$chimera" ./waterbox/run-gate.sh               # the core gate
 
 and, in the Chimera checkout, the contract tests (`docs/BUILDING.md`).
 
-- **Know what ran.** Both gates must end with `0 failed`. A PlayStation runs
-  nothing without its ROM, so with no content the core gate runs four checks
-  (`build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry`), skips 32,
-  and the frontend gate skips all five of its own. That is all CI proves.
+- **Know what ran.** Both gates must end with `0 failed`. Neither machine
+  runs anything without content, so with none the core gate runs six checks
+  (`build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry`,
+  `arcadedb:entry`, `arcade:noset`), skips 42, and the frontend gate skips
+  all six of its own. That is all CI proves.
 - To gate the machine, provide the BIOS the gate names:
   `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS=<file>`. The disc
   checks want `NHL Blades of Steel 2000 (USA)`, the played-game checks `Need
   for Speed 5 - Porsche Unleashed [U] [SLUS-01104]` (`CHIMERA_PS1_DISC`,
-  `CHIMERA_PS1_GAME3D`); the table in `docs/BUILDING.md` says which check
-  needs what. If you have no BIOS, say in your report that the machine checks
+  `CHIMERA_PS1_GAME3D`). The arcade checks want the rom sets
+  `tests/roms/arcade/sets/tekkenac.zip` with `tests/roms/arcade/namcoc76.zip`,
+  and `cryptklr.zip` with `420uaa04.chd`; `./waterbox/run-gate.sh -a` runs
+  them alone. The tables in `docs/BUILDING.md` say which check needs what. If you have no BIOS, say in your report that the machine checks
   did not run; do not present the green tier as proof.
 - The GPU checks draw on whatever this machine's EGL gives and name it. A
   result seen on llvmpipe is not said of a graphics card.
@@ -121,8 +133,11 @@ and, in the Chimera checkout, the contract tests (`docs/BUILDING.md`).
 ## Rules of this repository
 
 - **Upstream is patched, not edited.** Changes to `extern/duckstation` are
-  numbered patches in `patches/` (`NNNN-chimera-<what it does>.patch`, `git
-  diff` format, paths relative to the submodule).
+  numbered patches in `patches/`, and changes to `extern/arcadeduck` in
+  `patches-arcade/` (`NNNN-chimera-<what it does>.patch`, `git diff` format,
+  paths relative to the submodule). A change both emulators need is two
+  patches, one in each series under the same number where it is the same
+  change.
   `waterbox/apply-patches.sh` applies the whole series or none, in file-name
   order. `git status` shows `extern/duckstation` as modified once it is
   applied; that is expected. Never commit inside the submodule. After adding
@@ -145,7 +160,14 @@ and, in the Chimera checkout, the contract tests (`docs/BUILDING.md`).
   like an enhancement is measured before it is described as one.
 - **Run the gate before committing.** A new check needs a negative control:
   break the thing it checks and see it fail (`docs/PLAN.md` has the table).
-- **Never commit a BIOS, a game or a memory card with somebody's save.**
+- **A change to the adapter is a change to both machines.**
+  `waterbox/cinterface.cpp` and the files beside it are compiled against
+  each tree; build both and run both machines' checks. What only one machine
+  has goes in its `.inc`.
+- **Only a board that ran a game is offered.** `waterbox.config` declares a
+  machine when a complete set has been booted on it and a check holds it.
+  The others ArcadeDuck knows are compiled in and stay undeclared.
+- **Never commit a BIOS, a rom set, a game or a memory card with somebody's save.**
   `tests/roms/` is ignored wholesale and is where local content goes. Copy
   content into it; never link to the originals.
 - **Never add network access** to the core. A sandbox has no sockets.

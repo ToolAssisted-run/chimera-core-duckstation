@@ -11,8 +11,8 @@ With no slot argument the console has an empty tray, and boots to its own
 menu.
 
 usage: make-project.py <package> <out.chimeraProject> <frames> [--set=<setting>=<value> ...]
-                       [--idle-row=<row>] [--press=<frame>:<count>:<button> ...]
-                       [<slot=file> ...]
+                       [--idle-row=<row>] [--arcadedb=<arcadedb.yaml>] [--firmware=<id>=<file>]
+                       [--press=<frame>:<count>:<button> ...] [<slot=file> ...]
 
 A file a cue sheet names goes in as support=<file>. --press holds a button,
 by the name the package declares ("P1 Cross"), for <count> frames from
@@ -48,22 +48,27 @@ def main():
     package, out, frames = sys.argv[1], sys.argv[2], int(sys.argv[3])
     z = zipfile.ZipFile(package)
     cfg = json.loads(z.read("waterbox.config"))
-    inputs = cfg["input"]
-    buttons = inputs["buttons"]
-    axes = inputs.get("axes", [])
 
     files = []
     chosen = {}
     idle_row = None
+    live_names = None
+    arcadedb = None
+    firmware_files = {}
     presses = []
     for arg in sys.argv[4:]:
         if arg.startswith("--idle-row="):
             idle_row = arg[len("--idle-row="):]
             continue
+        if arg.startswith("--firmware="):
+            fid, fpath = arg[len("--firmware="):].split("=", 1)
+            firmware_files[fid] = fpath
+            continue
+        if arg.startswith("--arcadedb="):
+            arcadedb = arg[len("--arcadedb="):]
+            continue
         if arg.startswith("--press="):
             first, count, name = arg[len("--press="):].split(":", 2)
-            if name not in buttons:
-                sys.exit("make-project.py: the package declares no button named " + name)
             presses.append((int(first), int(count), name))
             continue
         if arg.startswith("--set="):
@@ -83,6 +88,53 @@ def main():
             value = value in ("true", "True", "1")
         settings[name] = value
 
+    # The machine the project is, and the wire that machine has: a package of
+    # several machines declares one controller for each (waterbox.config,
+    # "machines"), and the setting named by machineSetting picks.
+    which = settings.get(cfg.get("machineSetting", ""), None)
+    machine = next((m for m in cfg.get("machines", []) if which in m.get("when", [])), None)
+    if cfg.get("machines") and machine is None:
+        sys.exit("make-project.py: no machine of this package answers to %r" % which)
+    inputs = machine["input"] if machine else cfg["input"]
+    system_id = machine["id"] if machine else cfg["systemId"]
+    buttons = inputs["buttons"]
+    axes = inputs.get("axes", [])
+    for first, count, name in presses:
+        if name not in buttons:
+            sys.exit("make-project.py: this machine declares no button named " + name)
+    arcade = system_id != "PS1"
+
+    # An arcade panel's live wires are the cabinet's, and the core reads them
+    # from ArcadeDuck's record of the game (waterbox/machine-arcade.inc,
+    # DescribePanel). That rule, restated from the same record: Service and
+    # Test always; per port the controls its layout names, a Start button and
+    # a coin slot; a gun's aim where the port is a gun.
+    if arcade:
+        if arcadedb is None:
+            sys.exit("make-project.py: an arcade project needs --arcadedb=<arcadedb.yaml>")
+        import yaml
+        db = yaml.safe_load(open(arcadedb))
+        sets = [f["name"] for f in files if f["slot"] == "romset" and f["name"].lower().endswith(".zip")]
+        if not sets:
+            sys.exit("make-project.py: an arcade project needs romset=<set>.zip")
+        game = db["games"].get(os.path.splitext(sets[0])[0])
+        if game is None:
+            sys.exit("make-project.py: %s is not in the arcade database" % sets[0])
+        spelled = {"Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right", "Start": "Start", "Coin": "Coin",
+                   "Trigger": "Trigger", "Reload": "Reload", "GunX": "Gun X", "GunY": "Gun Y"}
+        spelled.update({"Button%d" % n: "Button %d" % n for n in range(1, 7)})
+        live_names = {"Service", "Test"}
+        for i, port in enumerate(game.get("controls", {}).get("ports", [])):
+            if port.get("type", "none") == "none":
+                continue
+            layout = db["controlLayouts"].get(port.get("layout", ""))
+            keys = [b["key"] for b in layout["bindings"]] if layout else list(spelled)
+            for key in keys + ["Start", "Coin"]:
+                if key in spelled:
+                    live_names.add("P%d %s" % (i + 1, spelled[key]))
+            if port["type"] == "lightgun":
+                live_names |= {"P%d Gun X" % (i + 1), "P%d Gun Y" % (i + 1)}
+
     # Which of the declared controls THIS machine has. The frontend reads a
     # movie's rows by its LogKey, and the engine writes a row with a column
     # for every control the core says is live (IsButtonActive, IsAxisActive)
@@ -98,6 +150,8 @@ def main():
         return 0
 
     def live(name):
+        if arcade:
+            return name in live_names
         port = player_of(name)
         if port == 0:
             if name == "Reset":
@@ -156,13 +210,29 @@ def main():
     # the firmware this machine needs, pinned as the wizard would pin it: every
     # declaration whose condition the settings meet (the ROMs themselves come
     # from --firmware on the command line, by id)
-    def needed(decl):
-        when = decl.get("requiredWhen")
+    def holds(when):
         if when is None:
             return True
+        if "all" in when:
+            return all(holds(w) for w in when["all"])
+        if "any" in when:
+            return any(holds(w) for w in when["any"])
         value = settings.get(when["setting"])
         return value == when["is"] if "is" in when else value in when.get("in", [])
-    firmware = [{"id": d["id"], "sha1": d["sha1"]} for d in cfg.get("firmware", []) if needed(d)]
+
+    # A MAME archive is firmware with no hash declared - archives of one rom
+    # differ - so a project pins the hash of the archive it was made with, as
+    # the wizard does: --firmware=<id>=<file> says which that is.
+    firmware = []
+    for d in cfg.get("firmware", []):
+        if not holds(d.get("requiredWhen")):
+            continue
+        pinned = d.get("sha1")
+        if pinned is None:
+            if d["id"] not in firmware_files:
+                sys.exit("make-project.py: %s has no declared hash; say which file with --firmware=%s=<file>" % (d["id"], d["id"]))
+            pinned = sha1(firmware_files[d["id"]])
+        firmware.append({"id": d["id"], "sha1": pinned})
 
     project = {
         "id": "duckstation-gate-01",
@@ -179,7 +249,7 @@ def main():
         "branches": [],
         "headers": {
             "MovieVersion": "Chimera Project File v1.1",
-            "Platform": cfg["systemId"],
+            "Platform": system_id,
             "SHA1": files[0]["sha1"] if files else "",
             "LastInputFrame": str(frames - 1),
             "VsyncNumerator": str(cfg["video"]["vsyncNumerator"]),

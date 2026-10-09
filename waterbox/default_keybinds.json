@@ -9,7 +9,12 @@
     "Analog is a real button on a DualShock - it switches the pad between digital and analog mode,",
     "which a game can see - so it is bound rather than assumed.",
     "",
-    "Player 1 keeps the keyboard as well as the first pad; player 2 gets a pad and no keys."
+    "Player 1 keeps the keyboard as well as the first pad; player 2 gets a pad and no keys.",
+    "",
+    "The arcade boards' panel is a second controller. Player 1 has the keyboard - the arrows, Z X C for the",
+    "first three buttons and A S D for the next three, 1 to start and 5 for a coin, as MAME has taught",
+    "everybody - and the first pad; the others have a pad each. Service and Test are the cabinet's own",
+    "switches and sit on keys nobody hits by accident."
   ],
   "AllTrollers": {
     "PlayStation Controllers": {
@@ -47,10 +52,71 @@
       "P2 L3": "J2 B11, X2 LeftStick",
       "P2 R3": "J2 B12, X2 RightStick",
       "P2 Analog": "J2 B13"
+    },
+    "PlayStation Arcade Panel": {
+      "P1 Up": "Up, J1 POV1U, X1 DpadUp, X1 LStickUp",
+      "P1 Down": "Down, J1 POV1D, X1 DpadDown, X1 LStickDown",
+      "P1 Left": "Left, J1 POV1L, X1 DpadLeft, X1 LStickLeft",
+      "P1 Right": "Right, J1 POV1R, X1 DpadRight, X1 LStickRight",
+      "P1 Start": "D1, J1 B10, X1 Start",
+      "P1 Coin": "D5, J1 B9, X1 Back",
+      "P1 Button 1": "Z, J1 B1, X1 X",
+      "P1 Button 2": "X, J1 B2, X1 A",
+      "P1 Button 3": "C, J1 B3, X1 B",
+      "P1 Button 4": "A, J1 B4, X1 Y",
+      "P1 Button 5": "S, J1 B5, X1 LeftShoulder",
+      "P1 Button 6": "D, J1 B6, X1 RightShoulder",
+      "P1 Trigger": "WMouse L",
+      "P1 Reload": "WMouse R",
+      "P2 Up": "J2 POV1U, X2 DpadUp, X2 LStickUp",
+      "P2 Down": "J2 POV1D, X2 DpadDown, X2 LStickDown",
+      "P2 Left": "J2 POV1L, X2 DpadLeft, X2 LStickLeft",
+      "P2 Right": "J2 POV1R, X2 DpadRight, X2 LStickRight",
+      "P2 Start": "D2, J2 B10, X2 Start",
+      "P2 Coin": "D6, J2 B9, X2 Back",
+      "P2 Button 1": "J2 B1, X2 X",
+      "P2 Button 2": "J2 B2, X2 A",
+      "P2 Button 3": "J2 B3, X2 B",
+      "P2 Button 4": "J2 B4, X2 Y",
+      "P2 Button 5": "J2 B5, X2 LeftShoulder",
+      "P2 Button 6": "J2 B6, X2 RightShoulder",
+      "P2 Trigger": "",
+      "P2 Reload": "",
+      "P3 Up": "J3 POV1U, X3 DpadUp, X3 LStickUp",
+      "P3 Down": "J3 POV1D, X3 DpadDown, X3 LStickDown",
+      "P3 Left": "J3 POV1L, X3 DpadLeft, X3 LStickLeft",
+      "P3 Right": "J3 POV1R, X3 DpadRight, X3 LStickRight",
+      "P3 Start": "J3 B10, X3 Start",
+      "P3 Coin": "J3 B9, X3 Back",
+      "P3 Button 1": "J3 B1, X3 X",
+      "P3 Button 2": "J3 B2, X3 A",
+      "P3 Button 3": "J3 B3, X3 B",
+      "P3 Button 4": "J3 B4, X3 Y",
+      "P3 Button 5": "J3 B5, X3 LeftShoulder",
+      "P3 Button 6": "J3 B6, X3 RightShoulder",
+      "P3 Trigger": "",
+      "P3 Reload": "",
+      "P4 Up": "J4 POV1U, X4 DpadUp, X4 LStickUp",
+      "P4 Down": "J4 POV1D, X4 DpadDown, X4 LStickDown",
+      "P4 Left": "J4 POV1L, X4 DpadLeft, X4 LStickLeft",
+      "P4 Right": "J4 POV1R, X4 DpadRight, X4 LStickRight",
+      "P4 Start": "J4 B10, X4 Start",
+      "P4 Coin": "J4 B9, X4 Back",
+      "P4 Button 1": "J4 B1, X4 X",
+      "P4 Button 2": "J4 B2, X4 A",
+      "P4 Button 3": "J4 B3, X4 B",
+      "P4 Button 4": "J4 B4, X4 Y",
+      "P4 Button 5": "J4 B5, X4 LeftShoulder",
+      "P4 Button 6": "J4 B6, X4 RightShoulder",
+      "P4 Trigger": "",
+      "P4 Reload": "",
+      "Service": "D9",
+      "Test": "F2"
     }
   },
   "AllTrollersAutoFire": {
-    "PlayStation Controllers": {}
+    "PlayStation Controllers": {},
+    "PlayStation Arcade Panel": {}
   },
   "AllTrollersAnalog": {
     "PlayStation Controllers": {
@@ -107,6 +173,22 @@
         "Value": "X2 RightThumbY Axis",
         "Mult": 1.0,
         "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      }
+    },
+    "PlayStation Arcade Panel": {
+      "P1 Gun X": {
+        "Value": "WMouse X",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Gun Y": {
+        "Value": "WMouse Y",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
         "ButtonBindPositive": "",
         "ButtonBindNegative": ""
       }

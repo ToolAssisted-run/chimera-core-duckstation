@@ -26,7 +26,8 @@
 #                   context on this machine: the hardware renderer through the
 #                   GPU bridge
 #
-# Usage: ./run-gate.sh [-n <native build dir>] [-g <guest build dir>] [-b <bridge build dir>]
+# Usage: ./run-gate.sh [-n <native build dir>] [-g <guest build dir>] [-b <bridge build dir>] [-a]
+#   -a   the arcade boards' legs only (and the ones that need no content)
 set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -34,11 +35,13 @@ root="$(cd "$here/.." && pwd)"
 nat="$root/build/meson-native"
 gst="$root/build/meson-guest"
 brg="$root/build/meson-gl"
-while getopts "n:g:b:" opt; do
+only_arcade=0
+while getopts "n:g:b:a" opt; do
 	case "$opt" in
 		n) nat="$OPTARG" ;;
 		g) gst="$OPTARG" ;;
 		b) brg="$OPTARG" ;;
+		a) only_arcade=1 ;;
 		*) exit 2 ;;
 	esac
 done
@@ -77,8 +80,8 @@ printf "%-22s %-6s %s\n" "-----" "------" "------"
 
 # A stale guest is the oldest way a gate lies: the sources moved on, the build
 # failed or was never run, and the comparison is of yesterday's core.
-newest_src="$(find "$here" "$root/patches" "$root/meson.build" -type f \
-	\( -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name '*.S' -o -name '*.patch' -o -name 'meson.build' \) \
+newest_src="$(find "$here" "$root/patches" "$root/patches-arcade" "$root/meson.build" -type f \
+	\( -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name '*.inc' -o -name '*.S' -o -name '*.patch' -o -name 'meson.build' \) \
 	-newer "$gst/core.wbx" 2>/dev/null | grep -v -e '/run-wbx.c$' -e '/run-native.c$' -e '/gate-harness.h$' | head -1)"
 if [ -n "$newest_src" ]; then
 	report "build:fresh" FAIL "core.wbx is older than ${newest_src#"$root"/}: rebuild the guest"
@@ -122,21 +125,29 @@ mkwork() {
 kb="$(python3 - "$here/waterbox.config" "$here/default_keybinds.json" <<'PY' 2>&1
 import json, sys
 cfg = json.load(open(sys.argv[1])); kb = json.load(open(sys.argv[2]))
-inp = cfg["input"]; name = inp["name"]
-buttons = set(inp["buttons"]); axes = set(a["name"] for a in inp["axes"])
-bad = [k for k in kb["AllTrollers"].get(name, {}) if k not in buttons]
-bad += [k for k in kb["AllTrollersAnalog"].get(name, {}) if k not in axes]
-unbound = [b for b in inp["buttons"] if b.startswith("P1 ") and b not in kb["AllTrollers"].get(name, {})]
-mn = inp.get("mnemonics", {})
-per = {}
-for b in inp["buttons"]:
-    port, _, key = b.partition(" ")
-    ch = mn.get(b, mn.get(key))
-    if ch is None: bad.append("no mnemonic: " + b); continue
-    if ch in per.setdefault(port, {}): bad.append("%s and %s both write '%s'" % (per[port][ch], b, ch))
-    per[port][ch] = b
+# one controller per machine; two machines may share one (the arcade boards do)
+inputs = {}
+for m in cfg["machines"]: inputs.setdefault(m["input"]["name"], m["input"])
+bad = []; unbound = []; said = []
+for name, inp in inputs.items():
+    buttons = set(inp["buttons"]); axes = set(a["name"] for a in inp["axes"])
+    bad += [name + ": " + k for k in kb["AllTrollers"].get(name, {}) if k not in buttons]
+    bad += [name + ": " + k for k in kb["AllTrollersAnalog"].get(name, {}) if k not in axes]
+    unbound += [b for b in inp["buttons"] if b.startswith("P1 ") and b not in kb["AllTrollers"].get(name, {})]
+    mn = inp.get("mnemonics", {})
+    per = {}
+    for b in inp["buttons"]:
+        port, _, key = b.partition(" ")
+        if not (len(port) == 2 and port[0] == "P" and port[1].isdigit()): port, key = "", b
+        ch = mn.get(b, mn.get(key))
+        if ch is None: bad.append("no mnemonic: " + b); continue
+        if ch in per.setdefault(port, {}): bad.append("%s and %s both write '%s'" % (per[port][ch], b, ch))
+        per[port][ch] = b
+    said.append("%s: %d buttons, %d axes, %d bindings" % (name, len(buttons), len(axes), len(kb["AllTrollers"].get(name, {})) + len(kb["AllTrollersAnalog"].get(name, {}))))
+for name in list(kb["AllTrollers"]) + list(kb["AllTrollersAnalog"]):
+    if name not in inputs: bad.append("bindings for a controller no machine has: " + name)
 if bad or unbound: print("; ".join(bad + ["unbound: " + u for u in unbound])); sys.exit(1)
-print("%d buttons, %d axes, %d bindings" % (len(buttons), len(axes), len(kb["AllTrollers"][name]) + len(kb["AllTrollersAnalog"][name])))
+print("; ".join(said))
 PY
 )"
 if [ $? -eq 0 ]; then report "keybinds" PASS "$kb"; else report "keybinds" FAIL "$kb"; fi
@@ -165,6 +176,266 @@ else
 	report "gamedb:entry" FAIL "native [$n_db], sandbox [$w_db], control [$n_no]"
 fi
 
+# ---- the arcade boards --------------------------------------------------------
+#
+# The other emulator in the binary (meson.build, "one binary, two machines"):
+# the boards built out of a PlayStation, which run MAME rom sets. A function,
+# because it needs no PlayStation BIOS and is run whether or not there is one.
+#
+#   with nothing      the record of the boards is compiled in, and a board with
+#                     no rom set refuses and says why
+#   Namco System 11   tests/roms/arcade/sets/tekkenac.zip (Tekken, Asia,
+#                     TE4/VER.C) or $CHIMERA_ARCADE_NS11_SET, and the board's
+#                     sound processor's rom, tests/roms/arcade/namcoc76.zip or
+#                     $CHIMERA_ARCADE_NS11_BIOS
+#   Konami GQ         tests/roms/arcade/sets/cryptklr.zip (Crypt Killer) or
+#                     $CHIMERA_ARCADE_GQ_SET, and its hard disk,
+#                     tests/roms/arcade/420uaa04.chd or $CHIMERA_ARCADE_GQ_DISK
+#
+# The press scripts are written for those two sets and no others.
+arcade_tier() {
+	local adir="$root/tests/roms/arcade"
+
+	# the record of the boards: a set every copy has, and one that cannot exist
+	mkwork "$work/adb" "" '{"machine":"namco_system11","arcadedb_probe":"tekken"}'
+	local n_db w_db n_no
+	n_db="$(native "$work/adb" --frames 1 2>&1 | plain | sed -n 's/^duckstation: arcadedb probe: //p' | head -1)"
+	w_db="$(wbx "$work/adb" --frames 1 2>&1 | plain | sed -n 's/^duckstation: arcadedb probe: //p' | head -1)"
+	mkwork "$work/adb0" "" '{"machine":"namco_system11","arcadedb_probe":"nosuchset"}'
+	n_no="$(native "$work/adb0" --frames 1 2>&1 | plain | sed -n 's/^duckstation: arcadedb probe: //p' | head -1)"
+	if [ "$n_db" = "tekken = Tekken [namco_system11]" ] && [ "$w_db" = "$n_db" ] && [ "$n_no" = "nosuchset = (not on record)" ]; then
+		report "arcadedb:entry" PASS "$n_db, in both flavors; a set that does not exist is not on record"
+	else
+		report "arcadedb:entry" FAIL "native [$n_db], sandbox [$w_db], control [$n_no]"
+	fi
+
+	# a board with nothing to run: both flavors must refuse, and say what is missing
+	mkwork "$work/noset" "" '{"machine":"namco_system11"}'
+	local n_msg w_msg
+	n_msg="$(native "$work/noset" --frames 1 2>&1 | plain | grep -i 'no rom set' | head -1)"
+	w_msg="$(wbx "$work/noset" --frames 1 2>&1 | plain | grep -i 'no rom set' | head -1)"
+	if [ -n "$n_msg" ] && [ -n "$w_msg" ]; then
+		report "arcade:noset" PASS "both flavors: $(cut -c1-90 <<< "${n_msg#*: }")"
+	else
+		report "arcade:noset" FAIL "native said [${n_msg:-nothing}], sandbox said [${w_msg:-nothing}]"
+	fi
+
+	# ---- Namco System 11: Tekken ---------------------------------------------
+	local ns11="${CHIMERA_ARCADE_NS11_SET:-}" ns11bios="${CHIMERA_ARCADE_NS11_BIOS:-}"
+	[ -n "$ns11" ] || { [ -f "$adir/sets/tekkenac.zip" ] && ns11="$adir/sets/tekkenac.zip"; }
+	[ -n "$ns11bios" ] || { [ -f "$adir/namcoc76.zip" ] && ns11bios="$adir/namcoc76.zip"; }
+	if [ -z "$ns11" ] || [ -z "$ns11bios" ]; then
+		for leg in ns11:compare ns11:rerecord ns11:rewind ns11:memory ns11:refused ns11:engine ns11:gl ns11:gpu; do
+			report "$leg" SKIP "needs tests/roms/arcade/sets/tekkenac.zip (CHIMERA_ARCADE_NS11_SET) and tests/roms/arcade/namcoc76.zip (CHIMERA_ARCADE_NS11_BIOS)"
+		done
+	else
+		echo "# system 11: $(basename "$ns11") sha1 $(sha1sum "$ns11" | cut -c1-40)"
+		# <dir> <settings json>: what the frontend would mount for this board
+		mkns11() {
+			mkwork "$1" "" "$2"
+			cp "$ns11" "$1/tekkenac.zip"; cp "$ns11bios" "$1/namcoc76.zip"
+			printf '{"romset":["tekkenac.zip"]}' > "$1/slots"
+		}
+		# Two coins (this set wants two a credit), Start, the first character on
+		# offer, and then punches and kicks through the first fight. The wire's
+		# own indices: 4 Start, 5 Coin, 6..9 the four buttons.
+		local tk="--press 700:6:5 --press 760:6:5 --press 860:6:4 --press 1000:6:6 --press 1100:6:6"
+		local f; for f in $(seq 1500 60 2340); do tk="$tk --press $f:5:6 --press $((f + 20)):5:8"; done
+
+		mkns11 "$work/tk" '{"machine":"namco_system11"}'
+		# shellcheck disable=SC2086
+		native "$work/tk" --frames 2400 $tk 2>/dev/null | digests > "$work/tk.n"
+		# shellcheck disable=SC2086
+		wbx "$work/tk" --frames 2400 $tk 2>/dev/null | digests > "$work/tk.w"
+		native "$work/tk" --frames 2400 2>/dev/null | digests > "$work/tk.idle"
+		if [ -s "$work/tk.n" ] && cmp -s "$work/tk.n" "$work/tk.w" && ! cmp -s "$work/tk.n" "$work/tk.idle"; then
+			report "ns11:compare" PASS "2400 frames of Tekken from power-on through coins, Start and a fight: video, audio, lag, the machine every frame and memory identical, and not the attract mode's"
+		else
+			report "ns11:compare" FAIL "flavors $(cmp -s "$work/tk.n" "$work/tk.w" && echo agree || echo DIFFER: "$(diff "$work/tk.n" "$work/tk.w" | head -3 | tr '\n' ' ')"); played and idle $(cmp -s "$work/tk.n" "$work/tk.idle" && echo "are the SAME run" || echo differ)"
+		fi
+
+		wbx "$work/tk" --frames 500 2>/dev/null | digests > "$work/tk.s"
+		wbx "$work/tk" --frames 500 --rerecord 2>/dev/null | digests > "$work/tk.r"
+		if [ -s "$work/tk.s" ] && cmp -s "$work/tk.s" "$work/tk.r"; then
+			report "ns11:rerecord" PASS "500 frames with a state saved and loaded around every one: the straight run"
+		else
+			report "ns11:rerecord" FAIL "$(diff "$work/tk.s" "$work/tk.r" | head -4 | tr '\n' ' ')"
+		fi
+
+		# kept before the coins, restored in the middle of the fight
+		# shellcheck disable=SC2086
+		wbx "$work/tk" --frames 2400 $tk --rewind 650:2200 2>/dev/null | digests > "$work/tk.rw"
+		if [ -s "$work/tk.w" ] && cmp -s "$work/tk.w" "$work/tk.rw"; then
+			report "ns11:rewind" PASS "kept at frame 650 in the attract mode, restored at 2200 in the fight and replayed: the straight run"
+		else
+			report "ns11:rewind" FAIL "$(diff "$work/tk.w" "$work/tk.rw" | head -4 | tr '\n' ' ')"
+		fi
+
+		# What the board keeps: its EEPROM leaves as at28c16.nv, a project brings
+		# one in under that name, and the one becomes the other. A file under a
+		# name the board does not keep, and one of the wrong size, are refused.
+		mkdir -p "$work/tk.sn" "$work/tk.sw" "$work/tk.back"
+		native "$work/tk" --frames 300 --savedata-out "$work/tk.sn" > /dev/null 2>&1
+		wbx "$work/tk" --frames 300 --savedata-out "$work/tk.sw" > /dev/null 2>&1
+		local nv="$work/tk.sn/at28c16.nv" memory_ok=yes memory_why=""
+		if [ ! -f "$nv" ] || [ "$(stat -c %s "$nv" 2>/dev/null)" != 2048 ] || ! cmp -s "$nv" "$work/tk.sw/at28c16.nv"; then
+			memory_ok=no; memory_why="export: $(ls -l "$work/tk.sn" "$work/tk.sw" 2>&1 | tr '\n' ' ' | cut -c1-160)"
+		else
+			mkns11 "$work/tkin" '{"machine":"namco_system11"}'
+			# a memory somebody wrote in: the exported one with a mark in it
+			{ head -c 1792 "$nv"; printf 'CHIMERA-WAS-HERE'; tail -c 240 "$nv"; } > "$work/tkin/at28c16.nv"
+			printf '{"romset":["tekkenac.zip"],"boardmemory":["at28c16.nv"]}' > "$work/tkin/slots"
+			wbx "$work/tkin" --frames 1 --savedata-out "$work/tk.back" > /dev/null 2>&1
+			if ! cmp -s "$work/tkin/at28c16.nv" "$work/tk.back/at28c16.nv" || cmp -s "$nv" "$work/tk.back/at28c16.nv"; then
+				memory_ok=no; memory_why="import: what went in $(cmp -s "$work/tkin/at28c16.nv" "$work/tk.back/at28c16.nv" && echo "came back" || echo "did NOT come back")"
+			fi
+			mkns11 "$work/tkbad1" '{"machine":"namco_system11"}'; cp "$nv" "$work/tkbad1/scores.nv"
+			printf '{"romset":["tekkenac.zip"],"boardmemory":["scores.nv"]}' > "$work/tkbad1/slots"
+			wbx "$work/tkbad1" --frames 1 2>&1 | plain | grep -q 'rename it to the one it is' || { memory_ok=no; memory_why="$memory_why a file under another name was not refused;"; }
+			mkns11 "$work/tkbad2" '{"machine":"namco_system11"}'; head -c 1000 /dev/zero > "$work/tkbad2/at28c16.nv"
+			printf '{"romset":["tekkenac.zip"],"boardmemory":["at28c16.nv"]}' > "$work/tkbad2/slots"
+			wbx "$work/tkbad2" --frames 1 2>&1 | plain | grep -q "is not this board's" || { memory_ok=no; memory_why="$memory_why a file of the wrong size was not refused;"; }
+		fi
+		if [ "$memory_ok" = yes ]; then
+			report "ns11:memory" PASS "the board's EEPROM leaves as at28c16.nv, 2048 bytes, the same from both flavors; one a project brings comes back out byte for byte; another name and another size are refused"
+		else
+			report "ns11:memory" FAIL "$memory_why"
+		fi
+
+		# the machine is the project's, not the file's
+		mkns11 "$work/tkgq" '{"machine":"konami_gq"}'
+		local wrong
+		wrong="$(wbx "$work/tkgq" --frames 1 2>&1 | plain | grep -c "is a set for the board 'namco_system11'")"
+		if [ "$wrong" -ge 1 ]; then
+			report "ns11:refused" PASS "a System 11 set in a project made for another board is refused, and the refusal names both"
+		else
+			report "ns11:refused" FAIL "a Konami GQ project took a System 11 set"
+		fi
+
+		# the package, through Chimera's engine, from a project with the presses in it
+		local chimera_root="${CHIMERA_ROOT:-}" c
+		[ -n "$chimera_root" ] || for c in "$root/../chimera" "$root/../../chimera"; do
+			[ -x "$c/build/meson-linux/chimera-run" ] && { chimera_root="$(cd "$c" && pwd)"; break; }
+		done
+		local crun="$chimera_root/build/meson-linux/chimera-run" cpkg="$chimera_root/build/Cores/duckstation.chimeraCore"
+		if [ -z "$chimera_root" ] || [ ! -x "$crun" ] || [ ! -f "$cpkg" ]; then
+			report "ns11:engine" SKIP "needs chimera-run and an installed duckstation.chimeraCore (set CHIMERA_ROOT; run waterbox/build-package.sh -r <chimera>)"
+		elif [ "$cpkg" -ot "$gst/core.wbx" ]; then
+			report "ns11:engine" FAIL "the installed package is older than core.wbx: run waterbox/build-package.sh"
+		else
+			local ep="$work/tk.engine"; mkdir -p "$ep/files" "$ep/save.e" "$ep/save.n"
+			cp "$ns11" "$ep/files/tekkenac.zip"
+			local db="$root/extern/arcadeduck/data/resources/arcadedb.yaml"
+			local mp=("--press=700:6:P1 Coin" "--press=760:6:P1 Coin" "--press=860:6:P1 Start" "--press=1000:6:P1 Button 1" "--press=1100:6:P1 Button 1")
+			for f in $(seq 1500 60 2340); do mp+=("--press=$f:5:P1 Button 1" "--press=$((f + 20)):5:P1 Button 3"); done
+			python3 "$here/tests/make-project.py" "$cpkg" "$ep/shape.chimeraProject" 0 "--arcadedb=$db" \
+				--set=machine=namco_system11 "--firmware=namcoc76.zip=$ns11bios" "romset=$ep/files/tekkenac.zip" > "$ep/log" 2>&1
+			"$crun" --project "$ep/shape.chimeraProject" "$cpkg" --files "$ep/files" --firmware "namcoc76.zip=$ns11bios" \
+				--frames 1 --record "$ep/shape.txt" >> "$ep/log" 2>&1
+			python3 "$here/tests/make-project.py" "$cpkg" "$ep/tk.chimeraProject" 2400 "--idle-row=$(head -1 "$ep/shape.txt" 2>/dev/null)" \
+				"--arcadedb=$db" --set=machine=namco_system11 "--firmware=namcoc76.zip=$ns11bios" "${mp[@]}" "romset=$ep/files/tekkenac.zip" >> "$ep/log" 2>&1
+			"$crun" --project "$ep/tk.chimeraProject" "$cpkg" --files "$ep/files" --firmware "namcoc76.zip=$ns11bios" \
+				--dump "Main RAM=$ep/engine.ram" --export-savedata "$ep/save.e" >> "$ep/log" 2>&1
+			# shellcheck disable=SC2086
+			native "$work/tk" --frames 2400 $tk --dump-domain "Main RAM" "$ep/native.ram" --savedata-out "$ep/save.n" > /dev/null 2>&1
+			if [ -s "$ep/engine.ram" ] && cmp -s "$ep/engine.ram" "$ep/native.ram" && cmp -s "$ep/save.e/at28c16.nv" "$ep/save.n/at28c16.nv"; then
+				report "ns11:engine" PASS "the installed package, from a project with the fight's presses in its movie, through chimera-run: Main RAM after 2400 frames is the native reference's, and so is the EEPROM it exports"
+			else
+				report "ns11:engine" FAIL "RAM $(cmp -s "$ep/engine.ram" "$ep/native.ram" && echo agrees || echo DIFFERS), EEPROM $(cmp -s "$ep/save.e/at28c16.nv" "$ep/save.n/at28c16.nv" && echo agrees || echo DIFFERS): $(tail -2 "$ep/log" | tr '\n' ' ' | cut -c1-160)"
+			fi
+		fi
+
+		# The hardware renderer on the OpenGL inside the sandbox: the board is
+		# the same board whichever renderer draws it, the pictures are two
+		# rasterisers', and a rewind under it is exact, picture included.
+		mkns11 "$work/tkgl" '{"machine":"namco_system11","renderer":"opengl","verbose":true}'
+		local tkgl_log; tkgl_log="$(wbx "$work/tkgl" --frames 60 2>&1 | plain)"
+		if grep -q 'has no OpenGL in it' <<< "$tkgl_log"; then
+			report "ns11:gl" SKIP "this core.wbx was built without a guest Mesa"
+		else
+			mkns11 "$work/tkgl" '{"machine":"namco_system11","renderer":"opengl"}'
+			wbx "$work/tk" --frames 900 2>/dev/null > "$work/tk.sw900"
+			wbx "$work/tkgl" --frames 900 2>/dev/null > "$work/tk.gl900"
+			wbx "$work/tkgl" --frames 900 --rewind 700:860 2>/dev/null | digests > "$work/tk.glrw"
+			if grep -q '^machineHash=' "$work/tk.gl900" && cmp -s <(machine_only < "$work/tk.sw900") <(machine_only < "$work/tk.gl900") \
+				&& ! cmp -s <(grep '^videoHash' "$work/tk.sw900") <(grep '^videoHash' "$work/tk.gl900") \
+				&& cmp -s <(digests < "$work/tk.gl900") "$work/tk.glrw"; then
+				report "ns11:gl" PASS "900 frames on the hardware renderer inside the sandbox: the processor, the sound and the polls are the software renderer's, the picture is its own, and a rewind from 700 to 860 replays it exactly"
+			else
+				report "ns11:gl" FAIL "machine $(cmp -s <(machine_only < "$work/tk.sw900") <(machine_only < "$work/tk.gl900") && echo same || echo DIFFERS); pictures $(cmp -s <(grep '^videoHash' "$work/tk.sw900") <(grep '^videoHash' "$work/tk.gl900") && echo "the SAME" || echo differ); rewind $(cmp -s <(digests < "$work/tk.gl900") "$work/tk.glrw" && echo exact || echo DIFFERS)"
+			fi
+		fi
+
+		# On a host's OpenGL, through the bridge: the board's VRAM is a texture
+		# on the card and in no state. Told a state is coming, the core fetches
+		# it and the picture after a load is the straight run's; untold, it is
+		# not - or the leg cannot tell a core that carries VRAM from one that
+		# does not. Frames 1400..1460 are the attract mode's fight, at 2x.
+		if [ ! -x "$brg/run-wbx" ]; then
+			report "ns11:gpu" SKIP "needs a runner with the bridge's host half: meson setup build/meson-gl -Dminibox_dir=<miniBox> -Dgl_bridge=true"
+		else
+			mkns11 "$work/tkhw" '{"machine":"namco_system11","renderer":"opengl-hw","internalResolution":"2x","verbose":true}'
+			local hw_log hw_gl
+			hw_log="$(wbxgpu "$work/tkhw" --frames 60 2>&1 | plain)"
+			hw_gl="$(sed -n 's/.*GL_RENDERER: //p' <<< "$hw_log" | head -1)"
+			if [ -z "$(sed -n 's/^gpu bridge: \([0-9].*\)/\1/p' <<< "$hw_log" | head -1)" ]; then
+				report "ns11:gpu" SKIP "this machine gave the bridge no GL context"
+			else
+				mkns11 "$work/tkhw" '{"machine":"namco_system11","renderer":"opengl-hw","internalResolution":"2x"}'
+				wbxgpu "$work/tkhw" --frames 1480 2>/dev/null | digests > "$work/tkhw.s"
+				wbxgpu "$work/tkhw" --frames 1480 --rewind 1400:1460 2>/dev/null | digests > "$work/tkhw.t"
+				GPU_ENV=CHIMERA_NO_STATE_SAVING=1 wbxgpu "$work/tkhw" --frames 1480 --rewind 1400:1460 2>/dev/null | digests > "$work/tkhw.u"
+				local told_ok=no untold_differs=no untold_machine=no
+				cmp -s "$work/tkhw.s" "$work/tkhw.t" && [ -s "$work/tkhw.s" ] && told_ok=yes
+				cmp -s "$work/tkhw.s" "$work/tkhw.u" || untold_differs=yes
+				cmp -s <(machine_only < "$work/tkhw.s") <(machine_only < "$work/tkhw.u") && untold_machine=yes
+				if [ "$told_ok" = yes ] && [ "$untold_differs" = yes ] && [ "$untold_machine" = yes ] && [ "$hw_gl" != "softpipe" ]; then
+					report "ns11:gpu" PASS "drawn outside the sandbox ($hw_gl) at 2x, kept at 1400 and restored at 1460: every frame after the load is the straight run's; left untold, the picture is not and the machine still is"
+				else
+					report "ns11:gpu" FAIL "renderer [$hw_gl]; told and straight $([ "$told_ok" = yes ] && echo agree || echo DIFFER); untold picture $([ "$untold_differs" = yes ] && echo differs || echo "is the SAME - the control shows nothing"); untold machine $([ "$untold_machine" = yes ] && echo same || echo DIFFERS)"
+				fi
+			fi
+		fi
+	fi
+
+	# ---- Konami GQ: Crypt Killer ----------------------------------------------
+	local gq="${CHIMERA_ARCADE_GQ_SET:-}" gqdisk="${CHIMERA_ARCADE_GQ_DISK:-}"
+	[ -n "$gq" ] || { [ -f "$adir/sets/cryptklr.zip" ] && gq="$adir/sets/cryptklr.zip"; }
+	[ -n "$gqdisk" ] || { [ -f "$adir/420uaa04.chd" ] && gqdisk="$adir/420uaa04.chd"; }
+	if [ -z "$gq" ] || [ -z "$gqdisk" ]; then
+		for leg in gq:compare gq:rewind; do
+			report "$leg" SKIP "needs tests/roms/arcade/sets/cryptklr.zip (CHIMERA_ARCADE_GQ_SET) and its hard disk tests/roms/arcade/420uaa04.chd (CHIMERA_ARCADE_GQ_DISK)"
+		done
+	else
+		echo "# konami gq: $(basename "$gq") sha1 $(sha1sum "$gq" | cut -c1-40)"
+		mkwork "$work/ck" "" '{"machine":"konami_gq"}'
+		cp "$gq" "$work/ck/cryptklr.zip"; ln -s "$gqdisk" "$work/ck/420uaa04.chd"
+		printf '{"romset":["cryptklr.zip","420uaa04.chd"]}' > "$work/ck/slots"
+		# The board tests itself for a minute. Then a coin, Start, and a gun
+		# aimed a little left of centre firing through the first stage. The
+		# wire: 4 Start, 5 Coin, 12 Trigger; axes 0 and 1 are the gun's aim.
+		local ck="--hold-axis 0:28000 --hold-axis 1:30000 --press 4300:6:5 --press 4400:6:4"
+		for f in $(seq 4600 40 5560); do ck="$ck --press $f:4:12"; done
+		# shellcheck disable=SC2086
+		native "$work/ck" --frames 5600 $ck 2>/dev/null | digests > "$work/ck.n"
+		# shellcheck disable=SC2086
+		wbx "$work/ck" --frames 5600 $ck 2>/dev/null | digests > "$work/ck.w"
+		native "$work/ck" --frames 5600 --hold-axis 0:28000 --hold-axis 1:30000 2>/dev/null | digests > "$work/ck.idle"
+		if [ -s "$work/ck.n" ] && cmp -s "$work/ck.n" "$work/ck.w" && ! cmp -s "$work/ck.n" "$work/ck.idle"; then
+			report "gq:compare" PASS "5600 frames of Crypt Killer from power-on through its self-test, a coin, Start and a gun firing: video, audio, lag, the machine every frame and memory identical, and not the attract mode's"
+		else
+			report "gq:compare" FAIL "flavors $(cmp -s "$work/ck.n" "$work/ck.w" && echo agree || echo DIFFER: "$(diff "$work/ck.n" "$work/ck.w" | head -3 | tr '\n' ' ')"); played and idle $(cmp -s "$work/ck.n" "$work/ck.idle" && echo "are the SAME run" || echo differ)"
+		fi
+		# shellcheck disable=SC2086
+		wbx "$work/ck" --frames 5600 $ck --rewind 4250:5400 2>/dev/null | digests > "$work/ck.rw"
+		if [ -s "$work/ck.w" ] && cmp -s "$work/ck.w" "$work/ck.rw"; then
+			report "gq:rewind" PASS "kept at frame 4250 before the coin, restored at 5400 in the game and replayed: the straight run"
+		else
+			report "gq:rewind" FAIL "$(diff "$work/ck.w" "$work/ck.rw" | head -4 | tr '\n' ' ')"
+		fi
+	fi
+}
+
 # ---- what content there is -------------------------------------------------
 
 # Named, never "the first file in the folder": a leg that takes whatever is
@@ -173,6 +444,14 @@ bios="${CHIMERA_PS1_BIOS:-}"
 [ -n "$bios" ] || { [ -f "$root/tests/roms/bios/PSX_4.1(A).bin" ] && bios="$root/tests/roms/bios/PSX_4.1(A).bin"; }
 disc="${CHIMERA_PS1_DISC:-}"
 [ -n "$disc" ] || { [ -f "$root/tests/roms/NHL Blades of Steel 2000 (USA).cue" ] && disc="$root/tests/roms/NHL Blades of Steel 2000 (USA).cue"; }
+
+if [ "$only_arcade" -eq 1 ]; then
+	arcade_tier
+	echo
+	echo "$ok ok, $failed failed, $skipped skipped (the arcade legs only)"
+	[ "$failed" -eq 0 ]
+	exit $?
+fi
 
 if [ -z "$bios" ]; then
 	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted region:rom \
@@ -183,6 +462,7 @@ if [ -z "$bios" ]; then
 		play:compare play:rewind gpu:play gpu:enhancements disc:swap; do
 		report "$leg" SKIP "needs a PlayStation BIOS: tests/roms/bios/PSX_4.1(A).bin, or CHIMERA_PS1_BIOS=<file>"
 	done
+	arcade_tier
 	echo
 	echo "$ok ok, $failed failed, $skipped skipped"
 	[ "$failed" -eq 0 ]
@@ -729,6 +1009,8 @@ else
 		report "disc:swap" FAIL "second disc inserted: $second; swapped and idle $(cmp -s "$work/two.idle" "$work/two.n" && echo "are the SAME run" || echo differ); flavors $(cmp -s "$work/two.n" "$work/two.w" && echo agree || echo DIFFER); rewind $(cmp -s "$work/two.w" "$work/two.rw" && echo agrees || echo DIFFERS)"
 	fi
 fi
+
+arcade_tier
 
 echo
 echo "$ok ok, $failed failed, $skipped skipped"

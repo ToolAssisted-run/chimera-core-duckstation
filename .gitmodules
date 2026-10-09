@@ -7,3 +7,6 @@
 [submodule "extern/zstd"]
 	path = extern/zstd
 	url = https://github.com/facebook/zstd.git
+[submodule "extern/arcadeduck"]
+	path = extern/arcadeduck
+	url = https://github.com/StillJC/ArcadeDuck.git

@@ -39,13 +39,19 @@
 #define GATE_PORTS 2
 #define GATE_SLOTS 2
 #define GATE_CONSOLE_BTNS 4
-#define GATE_BTN_COUNT (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS) + GATE_CONSOLE_BTNS)
+#define GATE_CONSOLE_WIRE (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS) + GATE_CONSOLE_BTNS)
+/* The arcade boards' panel is its own wire and a longer one: four players of
+ * fourteen controls, then Service and Test (waterbox/machine-arcade.inc). The
+ * harness drives whichever machine the work folder's settings ask for, so its
+ * arrays are as long as the longer; a machine ignores what is past its end. */
+#define GATE_ARCADE_WIRE (14 * 4 + 2)
+#define GATE_BTN_COUNT (GATE_ARCADE_WIRE > GATE_CONSOLE_WIRE ? GATE_ARCADE_WIRE : GATE_CONSOLE_WIRE)
 #define GATE_SLOT_BASE(slot) \
 	((slot) < GATE_PORTS ? (slot) * GATE_PORT_BTNS \
 		: GATE_PORT_BTNS * GATE_PORTS + ((slot) - GATE_PORTS) * GATE_DS2_BTNS)
 
 /* how many scripted presses one run may carry (--press) */
-#define GATE_MAX_PRESSES 32
+#define GATE_MAX_PRESSES 64
 
 struct gate_core
 {

@@ -1,0 +1,31 @@
+diff --git a/src/util/opengl_context.cpp b/src/util/opengl_context.cpp
+index c07dc41..d4bdf4f 100644
+--- a/src/util/opengl_context.cpp
++++ b/src/util/opengl_context.cpp
+@@ -15,7 +15,14 @@
+ #include <malloc.h>
+ #endif
+ 
+-#if defined(_WIN32) && !defined(_M_ARM64)
++#if defined(CHIMERA_GUEST_GL)
++// An OpenGL with no window system under it: Mesa's softpipe compiled into the
++// core, or a real driver on the far side of the GPU bridge
++// (chimera-core-duckstation, waterbox/gl-osmesa.cpp and gl-bridged.cpp).
++extern "C" bool chimera_gl_bridged();
++std::unique_ptr<OpenGLContext> ChimeraCreateGLContext(const WindowInfo& wi, Error* error);
++std::unique_ptr<OpenGLContext> ChimeraCreateBridgedGLContext(const WindowInfo& wi, Error* error);
++#elif defined(_WIN32) && !defined(_M_ARM64)
+ #include "opengl_context_wgl.h"
+ #elif defined(__APPLE__)
+ #include "opengl_context_agl.h"
+@@ -148,7 +155,9 @@ std::unique_ptr<OpenGLContext> OpenGLContext::Create(const WindowInfo& wi, Error
+   }
+ 
+   std::unique_ptr<OpenGLContext> context;
+-#if defined(_WIN32) && !defined(_M_ARM64)
++#if defined(CHIMERA_GUEST_GL)
++  context = chimera_gl_bridged() ? ChimeraCreateBridgedGLContext(wi, error) : ChimeraCreateGLContext(wi, error);
++#elif defined(_WIN32) && !defined(_M_ARM64)
+   context = OpenGLContextWGL::Create(wi, versions_to_try, error);
+ #elif defined(__APPLE__)
+   context = OpenGLContextAGL::Create(wi, versions_to_try, error);

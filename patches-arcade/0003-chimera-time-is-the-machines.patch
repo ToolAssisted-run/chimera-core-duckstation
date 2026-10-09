@@ -1,0 +1,68 @@
+diff --git a/src/common/timer.cpp b/src/common/timer.cpp
+index c3aaf60..4f508bb 100644
+--- a/src/common/timer.cpp
++++ b/src/common/timer.cpp
+@@ -146,11 +146,22 @@ double Timer::GetFrequency()
+   return 1.0;
+ }
+ 
++#ifdef CHIMERA_VIRTUAL_CLOCK
++// The time is how long the MACHINE has run, in nanoseconds of its own clock,
++// and the embedder says what that is. It passes when instructions execute and
++// never by waiting, so a host that stalls is a host the run cannot see.
++extern "C" std::uint64_t ChimeraClockNanoseconds(void);
++#endif
++
+ Timer::Value Timer::GetCurrentValue()
+ {
++#ifdef CHIMERA_VIRTUAL_CLOCK
++  return static_cast<Value>(ChimeraClockNanoseconds());
++#else
+   struct timespec tv;
+   clock_gettime(CLOCK_MONOTONIC, &tv);
+   return ((Value)tv.tv_nsec + (Value)tv.tv_sec * 1000000000);
++#endif
+ }
+ 
+ double Timer::ConvertValueToNanoseconds(Timer::Value value)
+@@ -185,6 +196,10 @@ Timer::Value Timer::ConvertNanosecondsToValue(double ns)
+ 
+ void Timer::SleepUntil(Value value, bool exact)
+ {
++#ifdef CHIMERA_VIRTUAL_CLOCK
++  // nothing to wait for: the clock moves when the machine does
++  return;
++#endif
+   if (exact)
+   {
+     static constexpr Value min_sleep_time = static_cast<Value>(0.5 * 1000000);
+@@ -323,6 +338,9 @@ bool Timer::ResetIfNanosecondsPassed(double s)
+ 
+ void Timer::BusyWait(std::uint64_t ns)
+ {
++#ifdef CHIMERA_VIRTUAL_CLOCK
++  return;
++#endif
+   const Value start = GetCurrentValue();
+   const Value end = start + ConvertNanosecondsToValue(static_cast<double>(ns));
+   if (end < start)
+@@ -338,6 +356,9 @@ void Timer::BusyWait(std::uint64_t ns)
+ 
+ void Timer::HybridSleep(std::uint64_t ns, std::uint64_t min_sleep_time)
+ {
++#ifdef CHIMERA_VIRTUAL_CLOCK
++  return;
++#endif
+   const std::uint64_t start = GetCurrentValue();
+   const std::uint64_t end = start + ConvertNanosecondsToValue(static_cast<double>(ns));
+   if (end < start)
+@@ -360,6 +381,9 @@ void Timer::HybridSleep(std::uint64_t ns, std::uint64_t min_sleep_time)
+ 
+ void Timer::NanoSleep(std::uint64_t ns)
+ {
++#ifdef CHIMERA_VIRTUAL_CLOCK
++  return;
++#endif
+ #if defined(_WIN32)
+   HANDLE timer = GetSleepTimer();
+   if (timer)

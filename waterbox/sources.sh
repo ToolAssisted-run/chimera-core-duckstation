@@ -36,13 +36,28 @@
 #   util/{vulkan,d3d11,d3d12,metal}_*             no such thing in a sandbox
 #   util/opengl_*                                 built only with a guest Mesa
 #
+# TWO TREES. The console is extern/duckstation. The arcade boards built out of
+# a PlayStation are extern/arcadeduck, which began as the same commit and is
+# its own emulator now (docs/PLAN.md, "ArcadeDuck"): the second argument names
+# the tree, the shape is the same, and what the arcade tree adds is added at
+# the end - its boards, the two processors their sound runs on, and the zip
+# reader a MAME set needs. Left out of it:
+#   core/arcade/arcade_output_win32, _network     a cabinet's lamps and
+#                                                 solenoids, told to a window
+#                                                 message or a socket
+#
 # Prints paths relative to the repository root, one per line.
 #
-# Usage: sources.sh [common|util|core|deps]
+# Usage: sources.sh [common|util|core|deps] [console|arcade]
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
-p="extern/duckstation"
+tree="${2:-console}"
+case "$tree" in
+	console) p="extern/duckstation" ;;
+	arcade) p="extern/arcadeduck" ;;
+	*) echo "sources.sh: the tree is console or arcade" >&2; exit 2 ;;
+esac
 cd "$root"
 
 common_srcs() {
@@ -93,6 +108,12 @@ core_srcs() {
 			echo "$p/src/core/$f.cpp"
 		done
 	fi
+	if [ "$tree" = arcade ]; then
+		find "$p/src/core/arcade" "$p/src/core/m37710" "$p/src/core/musashi" \
+			\( -name '*.cpp' -o -name '*.c' \) | grep -v \
+			-e "/arcade_output_win32.cpp$" -e "/arcade_output_network.cpp$" \
+			| sort
+	fi
 }
 
 deps_srcs() {
@@ -116,6 +137,10 @@ deps_srcs() {
 		echo "extern/zlib/$f.c"
 	done
 	find extern/zstd/lib/common extern/zstd/lib/compress extern/zstd/lib/decompress -name '*.c' | sort
+	# a MAME set is a zip
+	if [ "$tree" = arcade ]; then
+		find "$d/minizip/src" -name '*.c' | grep -v -e "iowin32" -e "/minizip.c$" -e "/miniunz.c$" | sort
+	fi
 }
 
 # Three groups and not one, because upstream compiles each of its libraries
@@ -127,5 +152,5 @@ case "${1:-}" in
 	util) util_srcs ;;
 	core) core_srcs ;;
 	deps) deps_srcs ;;
-	*) echo "usage: sources.sh [common|util|core|deps]" >&2; exit 2 ;;
+	*) echo "usage: sources.sh [common|util|core|deps] [console|arcade]" >&2; exit 2 ;;
 esac

@@ -11,3 +11,6 @@ option('mesa_guest_dir', type: 'string', value: '',
 
 option('gl_bridge', type: 'boolean', value: false,
   description: 'Native builds only: give run-wbx the host half of the GPU bridge, so the sandboxed hardware renderer can draw on a REAL graphics card (EGL, surfaceless). The GPU is outside the sandbox, outside the savestate and different on every machine; this is how the gate drives one, and what the frontend does through the engine\'s own host half.')
+
+option('arcade', type: 'boolean', value: true,
+  description: 'Build the arcade boards beside the console: ArcadeDuck\'s tree (extern/arcadeduck), compiled whole and linked in with its names kept to itself, so that one core.wbx is a PlayStation or one of the boards built out of one. Off, the core is the console alone.')

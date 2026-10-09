@@ -1,0 +1,132 @@
+diff --git a/src/core/arcade/arcade_input.cpp b/src/core/arcade/arcade_input.cpp
+index 43a72ad..0ebbbb7 100644
+--- a/src/core/arcade/arcade_input.cpp
++++ b/src/core/arcade/arcade_input.cpp
+@@ -656,8 +656,73 @@ void RegisterBindings(SettingsInterface& si, SettingsInterface& operator_si)
+   }
+ }
+ 
++#ifdef CHIMERA_WATERBOX
++extern "C" void chimera_input_was_read(void);
++
++void ChimeraSetDigital(u32 port, std::string_view key, bool pressed)
++{
++  const std::optional<Control> control = GetControl(key);
++  if (port >= s_ports.size() || !control.has_value())
++    return;
++
++  bool held;
++  {
++    std::lock_guard<std::mutex> lock(s_mutex);
++    held = IsPressed(s_ports[port], control.value());
++  }
++  // OnDigital counts presses, because several host bindings may hold one
++  // control down; here there is one voice, so the count is 0 or 1
++  if (held != pressed)
++    OnDigital(port, control.value(), pressed ? 1 : 0);
++}
++
++void ChimeraSetOperator(std::string_view key, bool pressed)
++{
++  OperatorControl control;
++  if (key == "Service")
++    control = OperatorControl::Service;
++  else if (key == "Test")
++    control = OperatorControl::Test;
++  else
++    return;
++
++  bool held;
++  {
++    std::lock_guard<std::mutex> lock(s_mutex);
++    held = s_operator.pressed_counts[static_cast<u32>(control)] != 0;
++  }
++  if (held != pressed)
++    OnOperatorDigital(control, pressed ? 1 : 0);
++}
++
++void ChimeraSetGun(u32 port_index, float x, float y, bool offscreen)
++{
++  std::lock_guard<std::mutex> lock(s_mutex);
++  if (port_index >= s_ports.size())
++    return;
++  PortState& port = s_ports[port_index];
++  if (port.type != Arcade::ArcadeControllerType::Lightgun || port_index >= (Konami::IsGQActive() ? 3U : 2U))
++    return;
++
++  port.lightgun_offscreen = offscreen;
++  port.axis_x = std::clamp(x, 0.0f, 1.0f);
++  port.axis_y = std::clamp(y, 0.0f, 1.0f);
++  port.lightgun_x = port.axis_x;
++  port.lightgun_y = port.axis_y;
++  if (Konami::IsGQActive())
++    Konami::SetGQLightgunPosition(port_index, port.lightgun_x, port.lightgun_y);
++  else
++    Konami::SetGVLightgunPosition(port_index, port.lightgun_x, port.lightgun_y);
++  ApplyPort(port_index);
++}
++#endif
++
+ bool IsDigitalPressed(u32 port, std::string_view key)
+ {
++#ifdef CHIMERA_LAG_DETECTION
++  // chimera: a board asked what is held, so this frame read its input
++  chimera_input_was_read();
++#endif
+   std::lock_guard<std::mutex> lock(s_mutex);
+   if (port >= s_ports.size())
+     return false;
+@@ -668,6 +733,9 @@ bool IsDigitalPressed(u32 port, std::string_view key)
+ 
+ float GetAnalogValue(u32 port, std::string_view key)
+ {
++#ifdef CHIMERA_LAG_DETECTION
++  chimera_input_was_read();
++#endif
+   std::lock_guard<std::mutex> lock(s_mutex);
+   if (port >= s_ports.size())
+     return 0.0f;
+diff --git a/src/core/arcade/arcade_input.h b/src/core/arcade/arcade_input.h
+index 6074755..2baa493 100644
+--- a/src/core/arcade/arcade_input.h
++++ b/src/core/arcade/arcade_input.h
+@@ -42,4 +42,14 @@ void SetLightgunViewport(float left, float top, float right, float bottom, float
+ void ResyncWindowedPointer(float x, float y);
+ void Update();
+ 
++#ifdef CHIMERA_WATERBOX
++// chimera: a frontend that says what is held. Nothing is bound to a host
++// device; each control of each port is put down or let up by name, once a
++// frame, and that is the whole of the panel.
++void ChimeraSetDigital(u32 port, std::string_view key, bool pressed);
++void ChimeraSetOperator(std::string_view key, bool pressed);
++// a light gun's aim, 0..1 across the picture and down it; outside, off-screen
++void ChimeraSetGun(u32 port, float x, float y, bool offscreen);
++#endif
++
+ } // namespace ArcadeInput
+diff --git a/src/core/arcade/systems/konami/konami.cpp b/src/core/arcade/systems/konami/konami.cpp
+index 0bb8418..4ac57da 100644
+--- a/src/core/arcade/systems/konami/konami.cpp
++++ b/src/core/arcade/systems/konami/konami.cpp
+@@ -2446,11 +2446,20 @@ void WriteGQCabinetOutput(u32 size, u32 offset, u32 value)
+   runtime.gq_output_register_valid[register_index] = true;
+ }
+ 
++#ifdef CHIMERA_LAG_DETECTION
++extern "C" void chimera_input_was_read(void);
++#endif
++
+ u32 ReadGQInput(u32 size, u32 offset)
+ {
+   if (!s_gq_runtime || !s_gq_runtime->active)
+     return 0xffffffff;
+ 
++#ifdef CHIMERA_LAG_DETECTION
++  // chimera: the board read its panel, so this frame read its input
++  chimera_input_was_read();
++#endif
++
+   GQRuntimeState& runtime = *s_gq_runtime;
+   if (!runtime.input_access_logged)
+   {

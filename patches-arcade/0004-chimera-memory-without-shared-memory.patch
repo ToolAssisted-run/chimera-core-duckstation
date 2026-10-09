@@ -1,0 +1,87 @@
+diff --git a/src/core/bus.cpp b/src/core/bus.cpp
+index c4a4d6b..2bfc04c 100644
+--- a/src/core/bus.cpp
++++ b/src/core/bus.cpp
+@@ -209,6 +209,32 @@ static constexpr size_t TOTAL_SIZE = LUT_OFFSET + LUT_SIZE;
+ 
+ bool Bus::AllocateMemoryMap(bool export_shared_memory, Error* error)
+ {
++#ifdef CHIMERA_NO_SHARED_MEMORY
++  // Upstream maps one shared memory object twice, so that RAM has a view a
++  // page of which can be write-protected and another that never is. A sandbox
++  // has no such object and cannot protect a page for its guest, so there is
++  // one view of each region, from the heap, and it is always writable: code
++  // that was compiled from a page is found by the check every writer already
++  // makes (g_ram_code_bits), never by a fault.
++  g_ram = static_cast<u8*>(Common::AlignedMalloc(MemoryMap::RAM_SIZE, HOST_PAGE_SIZE));
++  g_bios = static_cast<u8*>(Common::AlignedMalloc(MemoryMap::BIOS_SIZE, HOST_PAGE_SIZE));
++  g_memory_handlers = static_cast<void**>(Common::AlignedMalloc(MemoryMap::LUT_SIZE, HOST_PAGE_SIZE));
++  if (!g_ram || !g_bios || !g_memory_handlers)
++  {
++    Error::SetStringView(error, "Failed to allocate memory for RAM, BIOS and LUTs");
++    ReleaseMemoryMap();
++    return false;
++  }
++
++  std::memset(g_ram, 0, MemoryMap::RAM_SIZE);
++  std::memset(g_bios, 0, MemoryMap::BIOS_SIZE);
++  std::memset(g_memory_handlers, 0, MemoryMap::LUT_SIZE);
++  g_unprotected_ram = g_ram;
++  g_memory_handlers_isc = g_memory_handlers + MEMORY_LUT_SLOTS;
++  SetHandlers();
++  Exports::RAM = reinterpret_cast<uintptr_t>(g_unprotected_ram);
++  return true;
++#else
+   INFO_LOG("Allocating{} shared memory map.", export_shared_memory ? " EXPORTED" : "");
+   if (export_shared_memory)
+   {
+@@ -269,6 +295,7 @@ bool Bus::AllocateMemoryMap(bool export_shared_memory, Error* error)
+ #endif
+ 
+   return true;
++#endif // CHIMERA_NO_SHARED_MEMORY
+ }
+ 
+ void Bus::ReleaseMemoryMap()
+@@ -279,6 +306,18 @@ void Bus::ReleaseMemoryMap()
+   Exports::RAM_MASK = 0;
+ #endif
+ 
++#ifdef CHIMERA_NO_SHARED_MEMORY
++  g_memory_handlers_isc = nullptr;
++  Common::AlignedFree(g_memory_handlers);
++  g_memory_handlers = nullptr;
++  Common::AlignedFree(g_bios);
++  g_bios = nullptr;
++  Common::AlignedFree(g_ram);
++  g_ram = nullptr;
++  g_unprotected_ram = nullptr;
++  return;
++#endif
++
+   g_memory_handlers_isc = nullptr;
+   if (g_memory_handlers)
+   {
+@@ -739,6 +778,11 @@ void Bus::ClearRAMCodePage(u32 index)
+ 
+ void Bus::SetRAMPageWritable(u32 page_index, bool writable)
+ {
++#ifdef CHIMERA_NO_SHARED_MEMORY
++  // see AllocateMemoryMap: nothing is protected, everything is checked
++  return;
++#endif
++
+   if (!MemMap::MemProtect(&g_ram[page_index * HOST_PAGE_SIZE], HOST_PAGE_SIZE,
+                           writable ? PageProtect::ReadWrite : PageProtect::ReadOnly)) [[unlikely]]
+   {
+@@ -775,8 +819,10 @@ void Bus::ClearRAMCodePageFlags()
+ {
+   g_ram_code_bits.reset();
+ 
++#ifndef CHIMERA_NO_SHARED_MEMORY
+   if (!MemMap::MemProtect(g_ram, g_ram_size, PageProtect::ReadWrite))
+     ERROR_LOG("Failed to restore RAM protection to read-write.");
++#endif
+ 
+ #ifdef ENABLE_MMAP_FASTMEM
+   if (s_fastmem_mode == CPUFastmemMode::MMap)

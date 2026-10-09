@@ -122,11 +122,16 @@ and declared.
 - **M7 - speed.** NOT NEEDED so far: the interpreter runs a 3D race at eight
   times real time in the sandbox (see "A game played"). The code generators
   stay unbuilt, and with them the question of write protection.
-- **M8 - the arcade boards** (ArcadeDuck; see below).
+- **M8 - the arcade boards.** DONE 2026-10-09 for two of them: ArcadeDuck
+  compiled whole beside the console in one `core.wbx`, with Namco System 11
+  and Konami GQ each proved on a game (see "ArcadeDuck"). The Sony ZN boards
+  and Konami GV are compiled in and not offered: no complete set of theirs
+  has been booted.
 - **M9 - documents, CI, publishing.** The documents and the workflow are
-  written (2026-10-09) and the workflow's steps have been run here from a
-  fresh clone (see "On a runner"); it has never run on GitHub, because there
-  is no repository there yet - that is the owner's to create.
+  written (2026-10-09) and the workflow's steps were run here from a fresh
+  clone before it ever ran on GitHub (see "On a runner"). The owner asked
+  for the repository to be published the same day ("wrap up the
+  publication").
 
 ## How it is put together
 
@@ -513,11 +518,36 @@ upwards), and nothing at all on Windows.
 ## The gate
 
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
-with a Chimera checkout, with a GL context for the bridge, with the 3D game.
-36 legs, eight minutes here, all of them passing on 2026-10-09
-with the SCPH-7001 BIOS, NHL Blades of Steel 2000 (USA) and Need for Speed:
-Porsche Unleashed (USA). Five are the hardware renderer's on softpipe,
-sandbox against itself, and six are the bridge's, drawn by llvmpipe.
+with a Chimera checkout, with a GL context for the bridge, with the 3D game -
+and then the arcade boards, which need no PlayStation BIOS and are run
+whether or not there is one (`-a` runs them alone). 48 legs, eleven minutes
+here, all of them passing on 2026-10-09: 36 are the console's, with the
+SCPH-7001 BIOS, NHL Blades of Steel 2000 (USA) and Need for Speed: Porsche
+Unleashed (USA) - five of them the hardware renderer's on softpipe, sandbox
+against itself, and six the bridge's, drawn by llvmpipe - and 12 are the
+arcade boards', with Tekken (`tekkenac`) and Crypt Killer (`cryptklr`).
+
+The arcade legs passed the first time they were run, all of them, which is
+the best reason there is to break each one. Four builds did it:
+
+| broken on purpose, in the arcade machine | legs that went red |
+| --- | --- |
+| the panel's presses dropped | `ns11:compare` and `gq:compare` ("played and idle are the SAME run") |
+| a bit of RAM changed at frame 1000 in the sandbox only | the same two ("flavors DIFFER") |
+| nothing exported as save data | `ns11:memory` (export), `ns11:engine` ("EEPROM DIFFERS") |
+| any board takes any set | `ns11:refused` |
+| the renderer setting ignored | `ns11:gl` ("pictures the SAME"), `ns11:gpu` |
+| a count the machine reads kept in memory no state carries | `ns11:rewind`, `gq:rewind`, `ns11:gl` ("rewind DIFFERS") |
+| a brought EEPROM checked and not copied in | `ns11:memory` ("what went in did NOT come back") |
+| the card's VRAM not fetched before a state | `ns11:gpu` ("told and straight DIFFER") |
+| a load that adds one to a byte of RAM | `ns11:rerecord`, with every rewind leg |
+| the record of the boards left out of the core | `arcadedb:entry`, `arcade:noset`, and everything after them |
+
+The ninth row was first tried as a load that FLIPS a bit, and
+`ns11:rerecord` stayed green: five hundred loads are five hundred flips, and
+an even number of flips is none. The same trap had been met once already in
+this gate, on the console (the table below). A control that can cancel
+itself is not a control.
 
 `gpu:picture-after-load` carries its own control: the same rewind is run with
 `CHIMERA_NO_STATE_SAVING=1`, which leaves the core untold as it does in the
@@ -567,16 +597,26 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 ## The frontend gate
 
 `waterbox/tests/run-frontend.sh --chimera-root <chimera>`: the installed
-package through the real frontend, headless under Mono, from projects. Five
-legs, a minute, passing on 2026-10-09: the console with an empty tray for
-600 frames, a PAL console (a setting that has to arrive, and has to make
-another machine), the game from a cue sheet and its image for 1500 frames, a
-movie that presses its way into a race for 6000 - each ending on the first
-megabyte of the native reference's Main RAM - and the package's bindings
+package through the real frontend, headless under Mono, from projects. Six
+legs, a minute and a half, passing on 2026-10-09: the console with an empty
+tray for 600 frames, a PAL console (a setting that has to arrive, and has to
+make another machine), the game from a cue sheet and its image for 1500
+frames, a movie that presses its way into a race for 6000, the OTHER machine
+in the package - Tekken on Namco System 11, coins and a fight in its movie,
+on the arcade panel's own wire, for 2400 - each ending on the first megabyte
+of the native reference's Main RAM - and the package's bindings
 becoming the frontend's. Seen red: a binding changed in the repository after
 the package was built (`keybinds` names it). The others carry their
 controls: the PAL machine must differ from the NTSC one, the disc run from
 the empty console, the played game from the same game left alone.
+
+`arcade:frontend` was red twice before it was green, both times for a real
+reason: the board's firmware reached `chimera-run` as one mangled argument
+(a bash array cannot be set in front of a command), and then the frontend
+refused the project outright - "the project's firmware is not on hand" -
+because a MAME archive is firmware with no declared hash and the test
+project pinned an empty one. A project pins the hash of the archive it was
+made with, as the wizard does (`make-project.py --firmware=<id>=<file>`).
 
 **`play:frontend` is the only leg that presses anything**, and was added
 when the scenario was taken to Windows: the first four hold nothing down, so
@@ -672,8 +712,9 @@ contract tests against the package, the frontend gate, the artifact - and
 then Chimera's reusable publish workflow.
 
 **What it proves is the first tier and no more.** With no BIOS the core gate
-runs `build:fresh`, `keybinds`, `nobios:refuses` and `gamedb:entry` and says
-SKIP 32 times; the frontend gate says SKIP five times and is run all the
+runs `build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry`,
+`arcadedb:entry` and `arcade:noset` and says SKIP 42 times; the frontend
+gate says SKIP six times and is run all the
 same, so that the script is known to find the frontend, the package and the
 reference. The contract tests need no content. The workflow's header says
 this, and so does every skipped line.
@@ -705,12 +746,15 @@ history, and a core whose pin can no longer be fetched cannot be built. A
 mirror of the pinned commit under the project's own account would end the
 dependency; creating one is the owner's (see "What is the owner's").
 
-## ArcadeDuck (chimera#221, second half)
+## ArcadeDuck: the arcade boards (chimera#221, second half; 2026-10-09)
 
-`StillJC/ArcadeDuck` (GPL-3.0, first published 2026-09-26, six commits, no
-upstream history) adds PlayStation-derived arcade boards: Sony ZN-1/ZN-2 and
-the boards built on them, Namco System 11, Konami GV and GQ. Measured against
-the pin:
+`StillJC/ArcadeDuck` (GPL-3.0-only, first published 2026-09-26) is the
+arcade boards built out of a PlayStation: Sony ZN-1 and ZN-2 and the boards
+built on them (Capcom, Taito FX-1, Tecmo TPS, Raizing, Acclaim, Video System,
+Atlus, Time Warner), Namco System 11, Konami GV and GQ. The owner put it in
+scope of the request ("ArcadeDuck is part of the request", 2026-10-09).
+
+### What it is, measured against the pin
 
 - Its base is the pin itself: compared with each of the 260 commits up to
   `14ab642`, its tree differs least from `14ab642`, and it has that commit's
@@ -719,38 +763,213 @@ the pin:
 - It is not a superset of DuckStation. It deleted the console's controllers,
   memory cards, multitap and pad code (30 files), and says of itself that it
   is not meant to replace DuckStation for retail games.
-- It adds 121 files (`src/core/arcade/`, an M37710 and a 68000 core, sound
-  chips) and changes the machine's own files: `bus.cpp` by about 800 lines,
+- It adds 121 files - 57,000 lines under `src/core/arcade`, an M37710 and a
+  68000 - and changes the machine's own files: `bus.cpp` by about 800 lines,
   `gpu.cpp` 840, `system.cpp` 1440, `cpu_pgxp.cpp` 355, `gpu_sw_backend.cpp`
   290, `spu.cpp` 170, `gte.cpp` 155.
+- Its author builds it on Windows with MSVC only. On Linux with GCC, with
+  this repository's flags, every one of its sources compiled unchanged.
 
-So the arcade boards cannot be had by pinning ArcadeDuck instead. They go in
-the way the PlayStation 2 core carries NAMCO's boards: ArcadeDuck's arcade
-sources beside upstream, and the changes it made to the machine's files
-re-expressed as one patch of hook sites behind a define, with the console
-untouched when the define is off. Not started.
+### One binary, two machines
 
-**The licences were read (2026-10-09), and nothing in the arcade sources
-stands in the way.** ArcadeDuck's own files are GPL-3.0-only (68 of them
-under `src/core/arcade`). What it bundles there: QSound HLE (ValleyBell,
-BSD-3-Clause), ymfm (Aaron Giles, BSD-3-Clause), a Z80 (superzazu, MIT), an
-ADSP-2181 (from modem-dsp-emu, BSD-3-Clause), and devices adapted from MAME -
-the MN10200, ZSG-2 and TMS57002 - each marked BSD-3-Clause, the licence
-those MAME files carry; Musashi's 68000 is MIT. All of it may be distributed
-with a GPL-3.0 package. `package-licenses.json` will have to name each.
+The first plan was the PlayStation 2 core's: the arcade sources beside
+upstream, and ArcadeDuck's changes to the machine's files re-expressed as
+hook sites behind a define. It was dropped before a line of it was written,
+for what the measurements above say: four thousand changed lines in the
+bus, the GPU and the system are not hook sites, they are another emulator,
+and the console would have been running on a mixture of the two that neither
+author ever ran.
 
-**The size.** 57,000 lines under `src/core/arcade` (Sony ZN alone is 6,100,
-Konami 3,300, Namco System 11 2,900) and about 4,000 changed lines in the
-machine's own files to turn into hook sites. Its database (`arcadedb.yaml`)
-lists sixteen systems; the ones with a machine behind them are Sony ZN-1 and
-ZN-2 (Capcom, Taito FX-1, Tecmo TPS, Raizing, Acclaim, Video System, Atlus,
-Time Warner), Namco System 11, Konami GV and Konami GQ. It expects MAME
-non-merged sets and MAME's BIOS archives.
+So ArcadeDuck is compiled WHOLE, from a submodule of its own
+(`extern/arcadeduck`, pinned at `1e3f7ad`, its `main`), with the same flags
+and the same source shape (`waterbox/sources.sh <group> arcade`) and its own
+patch series (`patches-arcade/`). The two emulators define the same names -
+thousands, classes of one name and two layouts among them - so neither can
+be linked against the other. Each is joined into ONE relocatable object
+first (`waterbox/link-machine.sh`): its libraries, its dependencies and its
+own copy of the adapter, every reference inside it settled there, and then
+every symbol it defines made local but one - a table of the guest ABI
+(`waterbox/machine.h`). `waterbox/dispatch.c` is the guest ABI the frontend
+calls, and passes each call to the table of the machine the project's
+`machine` setting names. What is left undefined in each object - the C
+library, the C++ runtime, Mesa, the sandbox's own calls - is shared and
+resolved in the final link.
 
-**No set to try it on.** The arcade folder on this machine holds nothing
-for a PlayStation-derived board, so not one of these machines could be
-booted here. A board that has never run a game is not offered; the work
-waits for at least one set per board family, with its BIOS archive.
+Three things that made it work, each of which failed first:
+
+- **`--force-group-allocation`.** Inline functions and templates travel in
+  COMDAT groups, which a relocatable link keeps as groups to be merged by
+  name later - with the other emulator's.
+- **`-fno-gnu-unique`.** GCC gives the static variable of an inline function
+  a binding of its own, one definition per process whatever anybody says,
+  which `objcopy --keep-global-symbol` leaves global. Thirteen were left;
+  with the flag they are ordinary weak symbols and go local with the rest.
+  The link step checks that each object offers exactly its one name.
+- **The adapter is compiled twice.** `cinterface.cpp` and the files beside
+  it include the emulator's headers, so there is a copy for each tree; what
+  differs between the machines - what is plugged in, what is booted, what is
+  saved - is in `machine-console.inc` and `machine-arcade.inc`.
+
+The console is built the same way, through the same step, so that neither
+machine can lean on a name of the other's by accident. Its behaviour did not
+move: the Japanese game's 3000-frame digests were the same before and after
+the adapter was split, and the console's whole gate passed on the
+two-machine core before a single arcade leg existed.
+
+The cost: `core.wbx` grew from 87 MB to 98 MB, and a build compiles 550
+files instead of 280.
+
+### The patch series for the arcade tree
+
+Eight of the console's eleven patches applied to ArcadeDuck's tree
+unchanged, because its base is the pin. The other three were ported by hand,
+and three are the arcade tree's own:
+
+- `0004` (memory without shared memory): one hunk moved, because RAM there
+  is as large as the board makes it (`g_ram_size`).
+- `0007` is not the console's (there is no `pad.cpp`): the panel is told
+  what is held, by name, through three calls added to `arcade_input.cpp`
+  (`ChimeraSetDigital`, `ChimeraSetOperator`, `ChimeraSetGun`), and a frame
+  is not a lag frame when a board asked what was held (`IsDigitalPressed`,
+  `GetAnalogValue`, Konami GQ's `ReadGQInput`).
+- `0010` (what the card holds outlives a load): the same four hooks, with
+  VRAM read back to the height the board has (`g_vram_height`: 1024 lines on
+  System 11, twice the console's).
+- `0012` (what a board keeps is the machine's memory): see "Board memory".
+- `0013` (a CHD is found where every file is): `GetCHDImageSHA1` opened its
+  file with the library's own `fopen`, by the path MAME lays a rom folder
+  out with (`<set>/<disk>.chd`).
+
+What ArcadeDuck asks a desktop for and a sandbox does not have is answered
+in `waterbox/stubs/arcade.cpp`: a cabinet's lamp and coin-counter outputs
+(told to a socket or a window message), crosshair and bezel pictures, a game
+library - and the link cable between Tecmo's Gallop Racer cabinets, which is
+TCP: every socket call says no, and the board runs alone.
+
+### The panel
+
+An arcade machine has a wire of its own (`waterbox.config`, `machines`):
+four players of a stick, Start, a coin slot, six buttons and a gun's trigger
+and reload, then Service and Test; and a gun's aim per player, 0..65535
+across the picture and down it. Which of it a cabinet has is the game's:
+ArcadeDuck's database names a controller type and a layout per port, the
+adapter gives its input code exactly that (as its own frontend would, by the
+`ArcadeControllerPortN` settings) and reports the layout's controls as the
+live wires - Tekken's panel is a stick, four buttons, Start and a coin slot
+for each of two players, and that is all its movies have columns for.
+
+Not wired: a driving cabinet's wheel and pedals, a trackball, and the
+sensors of Konami's Tokimeki cabinet. No set that needs them has run here.
+
+### Board memory
+
+A board has memory that outlives the power switch - an EEPROM with the
+operator's settings and the high scores, a flash card - and ArcadeDuck keeps
+each as a file under `<data>/nvram/<set>/`, read at start and written on
+change or at shutdown. A core has no disk, and what a board remembers has to
+rewind with the game.
+
+So nothing under `nvram/` is a file (patch 0012). It never exists to be
+read, which makes a board start from its own blank; and a write there is a
+declaration - "this array is my non-volatile memory, and this is its name".
+All nine call sites in ArcadeDuck pass the board's own live array, a static
+or a member of the runtime it keeps for the session, so what is read through
+the pointer is what the board holds NOW (System 11 only writes its file at
+shutdown: a copy taken at the write would have been the blank one for the
+whole session). The adapter copies a project's saved file into the array
+before the first frame (the Board memory slot) and hands the array out as
+save data, under the board's own name for it with `.nv` on the end:
+`at28c16.nv` for a System 11 board.
+
+A bump of ArcadeDuck's pin has to re-read those call sites: one that passed
+a temporary buffer would leave a dangling pointer behind it.
+
+### Sound level
+
+ArcadeDuck raises what a board's sound chip mixed by 12 dB on its way to a
+sound card - a cabinet's amplifier, in effect - and holds the peaks with a
+limiter. The 12 dB is kept, because a board 12 dB quieter than the emulator
+it comes from would be a different-sounding machine; the limiter is a sound
+card's business and is not, so a peak the gain pushes past full scale stops
+there. It is done in whole numbers (10^(12/20) is 130451/32768): two C
+libraries can disagree about `pow`, and none about a multiplication.
+
+### The licences
+
+ArcadeDuck's own files are GPL-3.0-only. What it bundles under
+`src/core/arcade`: QSound HLE (ValleyBell, BSD-3-Clause), ymfm (Aaron Giles,
+BSD-3-Clause), a Z80 (superzazu, MIT), an ADSP-2181 (from MAME by way of
+modem-dsp-emu, BSD-3-Clause), and devices adapted from MAME - the MN10200,
+ZSG-2 and TMS57002 - each marked BSD-3-Clause, the licence those MAME files
+carry; the M37710 is MAME's (BSD-3-Clause) and Musashi's 68000 is MIT. All of
+it may be distributed with a GPL-3.0 package, and
+`waterbox/package-licenses.json` names each. Unlike the console's, this pin
+MAY move: ArcadeDuck is alive and GPL. What a bump has to check is that
+nothing in it was taken from DuckStation after the relicence.
+
+### What ran, and what did not
+
+Two boards, each on one game, both on 2026-10-09:
+
+- **Namco System 11: Tekken** (Asia, TE4/VER.C - the set `tekkenac`). From
+  power-on: the Namco logo, the attract mode, two coins (this set wants two a
+  credit), Start, the first character, and the first fight with punches and
+  kicks. Native and sandboxed it is identical over 2400 frames in video,
+  audio, lag, the machine every frame and memory; a state saved and loaded
+  around every frame changes nothing; kept at frame 650 and restored at 2200
+  in the fight it replays the straight run. Its EEPROM leaves as
+  `at28c16.nv` and comes back in. A project of it through Chimera's engine,
+  and through the frontend under Mono, ends on the native reference's memory.
+  On the hardware renderer inside the sandbox the board is the same board
+  and a rewind is exact, picture included; through the GPU bridge at 2x the
+  picture after a load is the straight run's, and is not when the core is
+  left untold. The software renderer runs it at about 270 frames a second in
+  the sandbox.
+- **Konami GQ: Crypt Killer** (`cryptklr`, with its hard disk
+  `420uaa04.chd`). The board's self-test (a minute of it), the attract mode,
+  a coin, Start and a light gun firing through the first stage: identical
+  native and sandboxed over 5600 frames, and across a rewind from before the
+  coin into the game.
+
+Not tried, and not to be said to work:
+
+- **Every other board.** Sony ZN-1 and ZN-2 and all that is built on them,
+  and Konami GV: compiled in, never booted (see below).
+- **A real graphics card.** The bridged leg drew on llvmpipe. The console's
+  results on the GTX 1060 say nothing about the arcade tree's GPU, which is
+  ArcadeDuck's changed one.
+- **Windows**, beyond the package being the same file.
+- **Above 4x on a System 11 board.** Its VRAM is 1024 lines, twice the
+  console's, and at 8x the buffer the card writes into is 256 MB where the
+  memory layout has 192 MB of room for it. Not measured.
+- **ArcadeDuck's monitor crop.** It hides, per game, the lines a cabinet's
+  monitor never showed (Tekken: eleven at the top, one at the bottom) and
+  stretches the rest. The core hands over the whole raster, so Tekken has
+  eleven black lines above its picture.
+- **Cabinets with a wheel, a trackball or sensors**, and more than two
+  players.
+
+### What the owner's sets could and could not do
+
+The sets put in the arcade folder on 2026-10-09 are from an older MAME
+release: the right bytes under older names, split rather than non-merged.
+`waterbox/tests/make-arcade-set.py` rebuilds a set under the names
+ArcadeDuck's database has, by CRC, from archives that hold the same roms,
+and invents nothing. Two came out whole - `tekkenac` (Tekken, Asia,
+TE4/VER.C) from `tekken.zip`, and `cryptklr` with its hard disk - and those
+are the two boards offered.
+
+The five sets for the ZN boards (`sfex`, `sfex2`, `psyforce`, `raystorm`,
+`doapp`) are each one file short: the game's security-chip key (`cp04`,
+`cp08`, `tt03`, `tt04`, `mg05`), an 8-byte file MAME added to its sets after
+that release and which ArcadeDuck requires. The database has each key's
+CRC-32 and SHA-1, and eight bytes with a known CRC are a search of 2^32
+candidates; the search was written, proved on a key that IS present (it
+found `cp01` as the BIOS archive has it), and then refused by the session's
+safety check when it was pointed at the missing ones. It was left there. The
+ZN boards, and Konami GV (its BIOS archive is here and no game), are
+compiled in and not declared: `waterbox.config` offers a board when a
+complete set has been booted on it.
 
 ## Sharp edges
 
@@ -775,7 +994,9 @@ waits for at least one set per board family, with its BIOS archive.
 
 ## What is the owner's
 
-Asked and answered (2026-10-09): the pin, the name, ArcadeDuck in scope.
+Asked and answered (2026-10-09): the pin, the name, ArcadeDuck in scope, and
+publishing - "can we wrap up the publication? Create remote repo, push, add
+it to chimera's Readme.md, add it to the site".
 
 Not yet asked, and decided provisionally so the work could go on:
 
@@ -798,5 +1019,7 @@ Not yet asked, and decided provisionally so the work could go on:
   own repository, which can stop offering it. Suggested: a fork under the
   project's account holding that commit, and the submodule pointed at it.
 
-Needing a decision before they happen: creating the public repository, the
-roster and README rows, a comment on chimera#221, and closing it.
+The five above were put to the owner twice and not answered before the
+repository was published; they stand as written until he says otherwise.
+chimera#221 stays open: the request names boards and features (the ZN
+boards, 16x, widescreen) that are not offered.

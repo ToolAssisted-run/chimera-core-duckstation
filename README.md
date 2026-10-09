@@ -1,12 +1,16 @@
 # chimera-core-duckstation
 
-DuckStation - the PlayStation - as a Chimera waterbox core.
+DuckStation - the PlayStation - and ArcadeDuck - the arcade boards built out
+of a PlayStation - as one Chimera waterbox core.
 
-Upstream is `stenzek/duckstation`, pinned as a submodule at
+The console is `stenzek/duckstation`, pinned as a submodule at
 `extern/duckstation` to commit `14ab642` (2024-09-01): the last one offered
-under the GPL-3.0. The pin does not move; `docs/PLAN.md` says why.
+under the GPL-3.0. That pin does not move; `docs/PLAN.md` says why. The
+arcade boards are `StillJC/ArcadeDuck`, a GPL-3.0 derivative of that same
+commit, pinned at `extern/arcadeduck` and compiled whole beside it: one
+`core.wbx`, two emulators, and a project's Machine setting picks.
 
-It runs the console and its games in the sandbox identically to its native
+**The PlayStation** runs its games in the sandbox identically to its native
 build: two ports of digital pad or DualShock, up to eight discs with a lid,
 memory cards, savestates and rewind. The picture comes from the software
 renderer, or from the hardware renderer at up to 8x with true colour, texture
@@ -14,9 +18,17 @@ filtering, downsampling, PGXP and crop - drawn by an OpenGL compiled into the
 core, or (`opengl-hw`) on the computer's own graphics card through Chimera's
 GPU bridge, which has been measured on one card (a GTX 1060, on Windows).
 
-Not there yet: the other controllers (mouse, light guns, NeGcon) and the
-multitap, the widescreen hack, and the arcade boards of ArcadeDuck.
-`docs/PLAN.md` has the milestones, what was measured and what was not tried.
+**The arcade boards** run MAME rom sets. Two are offered, each proved on one
+game: Namco System 11 (Tekken) and Konami GQ (Crypt Killer), with the panel
+as the cabinet has it, the board's own non-volatile memory in and out, and
+the same renderers. ArcadeDuck also knows Sony's ZN-1 and ZN-2 and the boards
+built on them, and Konami's GV; they are compiled in and not offered until a
+complete set has been booted on each.
+
+Not there yet: the console's other controllers (mouse, light guns, NeGcon)
+and the multitap, the widescreen hack, and an arcade cabinet's wheel,
+trackball or more than two players. `docs/PLAN.md` has the milestones, what
+was measured and what was not tried.
 
 ## Building
 
@@ -31,11 +43,16 @@ ninja -C build/meson-native
 ./waterbox/build-package.sh -m <miniBox> -r <chimera>     # core.wbx, and <chimera>/build/Cores/duckstation.chimeraCore
 ```
 
+`-Darcade=false` builds the console alone.
+
 ## Running it
 
-Both runners take a folder holding what the frontend would mount: the BIOS
-under the name `bios`, a disc image under its own name, and a `slots` file
-naming it (`{"disc": ["game.cue"]}`).
+Both runners take a folder holding what the frontend would mount. For the
+console: the BIOS under the name `bios`, a disc image under its own name, and
+a `slots` file naming it (`{"disc": ["game.cue"]}`). For a board: the rom set
+and its firmware archive under their own names, `slots` naming the set
+(`{"romset": ["tekkenac.zip"]}`) and `settings` naming the machine
+(`{"machine": "namco_system11"}`).
 
 ```sh
 build/meson-native/run-native <folder> --frames 600 --screenshot out.tga
@@ -54,13 +71,15 @@ CHIMERA_ROOT=<chimera> ./waterbox/run-gate.sh                 # native against s
 ```
 
 The gates need a BIOS at `tests/roms/bios/PSX_4.1(A).bin` (or
-`CHIMERA_PS1_BIOS`) for anything past the first four checks, and the two
-games `docs/BUILDING.md` names for the rest. What is missing is reported
-SKIP, and a SKIP is not a pass: with no content - which is all a public
-runner has - the gates prove the build and the package, not the console.
+`CHIMERA_PS1_BIOS`) and the two games `docs/BUILDING.md` names for the
+console, and the two rom sets it names for the boards. What is missing is
+reported SKIP, and a SKIP is not a pass: with no content - which is all a
+public runner has - the gates prove the build and the package, not the
+machines.
 
 ## Licence
 
-DuckStation at this pin is GPL-3.0, and so is the package. This repository's
-own files are MIT, but for the patches and two files made from upstream's
-(`LICENSE`).
+DuckStation at this pin is GPL-3.0, ArcadeDuck is GPL-3.0, and so is the
+package. This repository's own files are MIT, but for the patches and two
+files made from upstream's (`LICENSE`). No BIOS, rom set or game is here, and
+none may be added.

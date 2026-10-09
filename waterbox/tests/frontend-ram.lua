@@ -15,6 +15,7 @@
 --   meta=<path to write result metadata (text)>
 --   shot=<optional path to write a screenshot>
 --   bytes=<optional slice length, default 1MB>
+--   system=<optional system id the project must be, default PS1>
 
 local DOMAIN = "Main RAM"
 
@@ -51,7 +52,10 @@ end
 meta.metaPath = job.meta
 
 local sysid = emu.getsystemid()
-if sysid ~= "PS1" then
+-- which machine of the package this project should have built (system=<id>)
+local wantSystem = job.system
+if wantSystem == nil or wantSystem == "" then wantSystem = "PS1" end
+if sysid ~= wantSystem then
 	finish("ERROR", "wrong system id: " .. tostring(sysid))
 end
 if emu.getcorename() ~= "DuckStation" then

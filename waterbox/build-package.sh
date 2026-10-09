@@ -1,6 +1,7 @@
 #!/bin/sh
-# Builds the DuckStation waterbox core package and installs it into a chimera
-# checkout as build/Cores/duckstation.chimeraCore.
+# Builds the DuckStation waterbox core package - the PlayStation, and the
+# arcade boards built out of one - and installs it into a chimera checkout as
+# build/Cores/duckstation.chimeraCore.
 #
 # A package is core.wbx (fixed name) + waterbox.config + default_keybinds.json,
 # loaded through chimera's one built-in generic adapter.
@@ -112,6 +113,7 @@ binutils_version="$(ld --version | head -1 | grep -o '[0-9][0-9.]*$' || echo unk
 os_id="$(. /etc/os-release 2>/dev/null && printf '%s %s' "${ID:-unknown}" "${VERSION_ID:-}" || echo unknown)"
 guest_kit="$(git -C "$mb" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
 upstream_pin="$(git -C "$root/extern/duckstation" rev-parse HEAD 2>/dev/null || echo unknown)"
+arcade_pin="$(git -C "$root/extern/arcadeduck" rev-parse HEAD 2>/dev/null || echo unknown)"
 python3 - "$staging/build.json" <<PYPROV
 import json, subprocess
 def git(*args, default="unknown"):
@@ -129,6 +131,7 @@ json.dump({
                   "target": "x86_64-linux-musl", "musl": "$musl_version"},
     "guestKit": {"name": "miniBox", "commit": "$guest_kit"},
     "upstream": {"name": "DuckStation", "pin": "$upstream_pin"},
+    "upstreamArcade": {"name": "ArcadeDuck", "pin": "$arcade_pin"},
     "builtOn": "$os_id",
 }, open("$staging/build.json", "w"), indent=2, sort_keys=True)
 PYPROV

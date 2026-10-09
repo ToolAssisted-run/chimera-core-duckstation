@@ -198,10 +198,34 @@ void AudioStream::SetPaused(bool paused)
   m_paused = paused;
 }
 
+#ifdef CHIMERA_ARCADE
+// An arcade board is louder than a console. ArcadeDuck raises what the board's
+// sound chip mixed by 12 dB on its way to a sound card - a cabinet's own
+// amplifier, in effect - and holds the peaks down with a limiter. The 12 dB is
+// kept, because a board that played 12 dB quieter than the emulator it comes
+// from would be a different-sounding machine; the limiter is a sound card's
+// business and is not, so a peak the gain pushes past full scale stops there.
+// In whole numbers: 10^(12/20) is 3.98107, which is 130451/32768, and no two C
+// libraries can disagree about a multiplication.
+static s32 s_gain_q15 = 32768;
+
+void AudioStream::SetOutputVolume(u32 volume, s32 gain_db)
+{
+  m_volume = volume;
+  m_output_gain_db = gain_db;
+  if (this == s_live_stream || !s_live_stream)
+    s_gain_q15 = (gain_db == 12) ? 130451 : 32768;
+}
+
+void AudioStream::SetBackendPeriodFrames(u32 frames)
+{
+}
+#else
 void AudioStream::SetOutputVolume(u32 volume)
 {
   m_volume = volume;
 }
+#endif
 
 void AudioStream::BeginWrite(SampleType** buffer_ptr, u32* num_frames)
 {
@@ -295,6 +319,17 @@ int ChimeraAudioTake(int16_t* out, int max_frames)
     return 0;
 
   const u32 count = (s_live_wpos < static_cast<u32>(max_frames)) ? s_live_wpos : static_cast<u32>(max_frames);
+#ifdef CHIMERA_ARCADE
+  if (s_gain_q15 != 32768)
+  {
+    for (u32 i = 0; i < count * 2; i++)
+    {
+      const s64 v = (static_cast<s64>(s_live_buffer[i]) * s_gain_q15) >> 15;
+      out[i] = static_cast<int16_t>(v > 32767 ? 32767 : (v < -32768 ? -32768 : v));
+    }
+  }
+  else
+#endif
   std::memcpy(out, s_live_buffer, sizeof(s16) * 2 * count);
   if (count < s_live_wpos)
     std::memmove(s_live_buffer, s_live_buffer + static_cast<size_t>(count) * 2, sizeof(s16) * 2 * (s_live_wpos - count));

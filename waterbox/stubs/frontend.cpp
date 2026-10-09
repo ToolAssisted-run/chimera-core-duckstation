@@ -273,10 +273,12 @@ std::string GameList::GetCustomTitleForPath(const std::string_view path)
 {
   return {};
 }
+#ifndef CHIMERA_ARCADE
 std::optional<DiscRegion> GameList::GetCustomRegionForPath(const std::string_view path)
 {
   return std::nullopt;
 }
+#endif
 
 // ---- pictures swapped in from a host folder ---------------------------------
 

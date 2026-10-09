@@ -1,0 +1,111 @@
+diff --git a/src/common/file_system.cpp b/src/common/file_system.cpp
+index 5826c7e..4e21df3 100644
+--- a/src/common/file_system.cpp
++++ b/src/common/file_system.cpp
+@@ -1041,6 +1041,77 @@ static bool ChimeraIsRoot(const char* path)
+   return (!name || name[0] == '\0' || (name[0] == '.' && name[1] == '\0'));
+ }
+ #define CHIMERA_FLATTEN(name) name = ChimeraFlatName(name)
++
++// chimera: WHAT A BOARD KEEPS IS THE MACHINE'S MEMORY.
++//
++// An arcade board has memory that outlives the power switch - an EEPROM with
++// the operator's settings and the high scores, a flash card, a battery-backed
++// RAM - and ArcadeDuck keeps each as a file under <data>/nvram/<set>/, read
++// when the board starts and written when it changes or stops. A core has no
++// disk, and what a board remembers has to rewind with the game that wrote it.
++//
++// So nothing under nvram/ is a file. It never exists to be read, which makes
++// every board start from its own blank; and a write there is not a write but
++// a declaration - "this array is my non-volatile memory, and this is its
++// name". Every such call in ArcadeDuck passes the board's own live array (a
++// static, or a member of the runtime the board keeps for the whole session),
++// never a copy, so the pointer stays good and what is read through it is
++// always what the board holds now. The embedder lists them (ChimeraKept*),
++// copies a project's saved file into the array before the first frame, and
++// hands the array to the frontend as save data when it is asked.
++struct ChimeraKeptFile
++{
++  char name[48];
++  void* data;
++  size_t size;
++};
++static ChimeraKeptFile s_chimera_kept[16];
++static int s_chimera_kept_count;
++
++static bool ChimeraIsKeptPath(const char* path)
++{
++  return (path && std::strstr(path, "nvram") != nullptr);
++}
++
++static bool ChimeraKeep(const char* path, const void* data, size_t size)
++{
++  const char* const name = ChimeraFlatName(path);
++  for (int i = 0; i < s_chimera_kept_count; i++)
++  {
++    if (std::strcmp(s_chimera_kept[i].name, name) == 0)
++    {
++      s_chimera_kept[i].data = const_cast<void*>(data);
++      s_chimera_kept[i].size = size;
++      return true;
++    }
++  }
++  if (s_chimera_kept_count >= static_cast<int>(std::size(s_chimera_kept)))
++    return false;
++  ChimeraKeptFile& kept = s_chimera_kept[s_chimera_kept_count++];
++  std::snprintf(kept.name, sizeof(kept.name), "%s", name);
++  kept.data = const_cast<void*>(data);
++  kept.size = size;
++  return true;
++}
++
++extern "C" int ChimeraKeptCount(void)
++{
++  return s_chimera_kept_count;
++}
++extern "C" const char* ChimeraKeptName(int i)
++{
++  return (i >= 0 && i < s_chimera_kept_count) ? s_chimera_kept[i].name : "";
++}
++extern "C" void* ChimeraKeptData(int i, size_t* size)
++{
++  if (i < 0 || i >= s_chimera_kept_count)
++  {
++    *size = 0;
++    return nullptr;
++  }
++  *size = s_chimera_kept[i].size;
++  return s_chimera_kept[i].data;
++}
+ #else
+ #define CHIMERA_FLATTEN(name) ((void)0)
+ #endif
+@@ -1612,6 +1683,10 @@ std::optional<std::string> FileSystem::ReadFileToString(std::FILE* fp, Error* er
+ 
+ bool FileSystem::WriteBinaryFile(const char* filename, const void* data, size_t data_length, Error* error)
+ {
++#ifdef CHIMERA_FLAT_FILESYSTEM
++  if (ChimeraIsKeptPath(filename))
++    return ChimeraKeep(filename, data, data_length);
++#endif
+   ManagedCFilePtr fp = OpenManagedCFile(filename, "wb", error);
+   if (!fp)
+     return false;
+@@ -2522,7 +2597,7 @@ bool FileSystem::StatFile(std::FILE* fp, FILESYSTEM_STAT_DATA* sd)
+ bool FileSystem::FileExists(const char* path)
+ {
+ #ifdef CHIMERA_FLAT_FILESYSTEM
+-  if (ChimeraIsRoot(path))
++  if (ChimeraIsRoot(path) || ChimeraIsKeptPath(path))
+     return false;
+ #endif
+   CHIMERA_FLATTEN(path);
+@@ -2590,7 +2665,7 @@ bool FileSystem::IsDirectoryEmpty(const char* path)
+ bool FileSystem::CreateDirectory(const char* path, bool recursive, Error* error)
+ {
+ #ifdef CHIMERA_FLAT_FILESYSTEM
+-  if (ChimeraIsRoot(path))
++  if (ChimeraIsRoot(path) || ChimeraIsKeptPath(path))
+     return true;
+   Error::SetErrno(error, EROFS);
+   return false;

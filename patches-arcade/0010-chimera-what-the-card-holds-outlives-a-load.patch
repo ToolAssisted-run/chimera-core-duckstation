@@ -1,0 +1,180 @@
+diff --git a/src/core/gpu.cpp b/src/core/gpu.cpp
+index 7413715..e2cb300 100644
+--- a/src/core/gpu.cpp
++++ b/src/core/gpu.cpp
+@@ -1854,6 +1854,13 @@ void GPU::ClearDisplay()
+   DestroyDeinterlaceTextures();
+ }
+ 
++#ifdef CHIMERA_WATERBOX
++void GPU::ChimeraReadBackVRAM()
++{
++  ReadVRAM(0, 0, VRAM_WIDTH, g_vram_height);
++}
++#endif
++
+ void GPU::ReadVRAM(u32 x, u32 y, u32 width, u32 height)
+ {
+ }
+diff --git a/src/core/gpu.h b/src/core/gpu.h
+index 7e3c914..6e7f5e8 100644
+--- a/src/core/gpu.h
++++ b/src/core/gpu.h
+@@ -191,6 +191,13 @@ public:
+   float ComputeDisplayAspectRatio() const;
+ 
+ #ifdef CHIMERA_WATERBOX
++  // The whole of VRAM, brought back from wherever the renderer keeps it into
++  // the copy every renderer shares. For a hardware renderer that is the one
++  // thing the machine has that lives on the card, so it is what has to be
++  // fetched before a state is taken of a machine a real GPU is drawing for.
++  // (A board's VRAM is as tall as the board made it: g_vram_height.)
++  void ChimeraReadBackVRAM();
++
+   // The frame as the console put it out, for a frontend that reads it rather
+   // than presenting it: the display texture and the part of it in view, and
+   // where that rectangle sits in the raster the video mode describes.
+diff --git a/src/core/gpu_hw.cpp b/src/core/gpu_hw.cpp
+index a176b13..c0b3df4 100644
+--- a/src/core/gpu_hw.cpp
++++ b/src/core/gpu_hw.cpp
+@@ -37,6 +37,10 @@
+ 
+ Log_SetChannel(GPU_HW);
+ 
++#ifdef CHIMERA_GUEST_GL
++extern "C" bool chimera_gl_objects_stale;
++#endif
++
+ // TODO: instead of full state restore, only restore what changed
+ 
+ static constexpr GPUTexture::Format VRAM_RT_FORMAT = GPUTexture::Format::RGBA8;
+@@ -304,6 +308,53 @@ void GPU_HW::Reset(bool clear_vram)
+     ClearFramebuffer();
+ }
+ 
++#ifdef CHIMERA_WATERBOX
++void GPU_HW::ChimeraVRAMTextureSize(u32* width, u32* height) const
++{
++  *width = m_vram_texture ? m_vram_texture->GetWidth() : 0;
++  *height = m_vram_texture ? m_vram_texture->GetHeight() : 0;
++}
++
++bool GPU_HW::ChimeraDownloadVRAMTexture(void* rgba, u32 pitch)
++{
++  if (!m_vram_texture || m_vram_texture->IsMultisampled())
++    return false;
++
++  FlushRender();
++
++  const u32 width = m_vram_texture->GetWidth();
++  const u32 height = m_vram_texture->GetHeight();
++  std::unique_ptr<GPUDownloadTexture> dl =
++    g_gpu_device->CreateDownloadTexture(width, height, m_vram_texture->GetFormat(), rgba,
++                                        static_cast<size_t>(pitch) * height, pitch);
++  if (!dl)
++    return false;
++
++  dl->CopyFromTexture(0, 0, m_vram_texture.get(), 0, 0, width, height, 0, 0, false);
++  dl->Flush();
++  RestoreDeviceContext();
++  return true;
++}
++
++void GPU_HW::ChimeraUploadVRAMTexture(const void* rgba, u32 pitch)
++{
++  if (!m_vram_texture || m_vram_texture->IsMultisampled())
++    return;
++
++  m_vram_texture->Update(0, 0, m_vram_texture->GetWidth(), m_vram_texture->GetHeight(), rgba, pitch);
++
++  // what loading a state does after it has put VRAM back
++  if (m_pgxp_depth_buffer)
++    ClearDepthBuffer();
++  else if (m_write_mask_as_depth)
++    UpdateDepthBufferFromMaskBit();
++  ClearVRAMDirtyRectangle();
++  SetFullVRAMDirtyRectangle();
++  ResetBatchVertexDepth();
++  RestoreDeviceContext();
++}
++#endif
++
+ bool GPU_HW::DoState(StateWrapper& sw, GPUTexture** host_texture, bool update_display)
+ {
+   // Need to download local VRAM copy before calling the base class, because it serializes this.
+@@ -311,6 +362,15 @@ bool GPU_HW::DoState(StateWrapper& sw, GPUTexture** host_texture, bool update_di
+   {
+     m_sw_renderer->Sync(true);
+   }
++#ifdef CHIMERA_GUEST_GL
++  else if (sw.IsWriting() && !host_texture && chimera_gl_objects_stale)
++  {
++    // The GL objects this renderer holds are another context's (a state was
++    // loaded; see chimera-core-duckstation's cinterface.cpp). What the card
++    // has under those names is not this machine's VRAM, and the copy in guest
++    // memory - fetched before the state was taken - is. Nothing is read back.
++  }
++#endif
+   else if (sw.IsWriting() && !host_texture)
+   {
+     // If SW renderer readbacks aren't enabled, the CLUT won't be populated, which means it'll be invalid if the user
+diff --git a/src/core/gpu_hw.h b/src/core/gpu_hw.h
+index 37f610e..2f09cf3 100644
+--- a/src/core/gpu_hw.h
++++ b/src/core/gpu_hw.h
+@@ -61,6 +61,17 @@ public:
+   const Threading::Thread* GetSWThread() const override;
+   bool IsHardwareRenderer() const override;
+ 
++#ifdef CHIMERA_WATERBOX
++  // The board's VRAM as this renderer holds it: one texture on the card, at
++  // the internal resolution and in full colour. It is the one thing of the
++  // machine's that is in no savestate, so an embedder that snapshots guest
++  // memory fetches it before a state and gives it back after a load
++  // (chimera-core-duckstation, waterbox/cinterface.cpp).
++  void ChimeraVRAMTextureSize(u32* width, u32* height) const;
++  bool ChimeraDownloadVRAMTexture(void* rgba, u32 pitch);
++  void ChimeraUploadVRAMTexture(const void* rgba, u32 pitch);
++#endif
++
+   bool Initialize() override;
+   void Reset(bool clear_vram) override;
+   bool DoState(StateWrapper& sw, GPUTexture** host_texture, bool update_display) override;
+diff --git a/src/core/system.cpp b/src/core/system.cpp
+index d6436a3..26efc2d 100644
+--- a/src/core/system.cpp
++++ b/src/core/system.cpp
+@@ -1132,6 +1132,13 @@ std::string System::GetInputProfilePath(std::string_view name)
+   return Path::Combine(EmuFolders::InputProfiles, fmt::format("{}.ini", name));
+ }
+ 
++#ifdef CHIMERA_WATERBOX
++bool System::ChimeraRecreateGPU()
++{
++  return RecreateGPU(g_settings.gpu_renderer, true, false);
++}
++#endif
++
+ bool System::RecreateGPU(GPURenderer renderer, bool force_recreate_device, bool update_display /* = true*/)
+ {
+   ClearMemorySaveStates();
+diff --git a/src/core/system.h b/src/core/system.h
+index 5cc70a4..8e3201e 100644
+--- a/src/core/system.h
++++ b/src/core/system.h
+@@ -120,6 +120,14 @@ using GameHash = u64;
+ 
+ extern TickCount g_ticks_per_second;
+ 
++#ifdef CHIMERA_WATERBOX
++/// The graphics device went away under the renderer - a state was loaded and
++/// the GL objects it names are another context's. Lets go of the device and
++/// the renderer, makes both again and restores the renderer from the
++/// machine's own memory. (chimera-core-duckstation, waterbox/cinterface.cpp)
++bool ChimeraRecreateGPU();
++#endif
++
+ /// Returns true if the filename is a save state.
+ bool IsSaveStateFilename(std::string_view path);
+ 

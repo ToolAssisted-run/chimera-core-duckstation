@@ -1,7 +1,9 @@
 #!/bin/sh
-# Applies the numbered patches to the extern/duckstation submodule. Idempotent: a tree
-# that already carries the whole series is left alone, a pristine one has it
-# applied, and anything in between is an error that names the files.
+# Applies the numbered patches to the two upstream submodules: patches/ to
+# extern/duckstation (the console) and patches-arcade/ to extern/arcadeduck
+# (the arcade boards). Idempotent: a tree that already carries its whole series
+# is left alone, a pristine one has it applied, and anything in between is an
+# error that names the files.
 #
 # THE SERIES IS JUDGED AS A WHOLE (ported from chimera-core-rpcs3, where the old
 # way stopped a build). Judging a patch at a time - does it apply, else does it
@@ -16,16 +18,24 @@
 # So: what the series SHOULD leave behind is worked out on a scratch copy - the
 # touched files as the submodule's HEAD has them, with every patch applied in
 # order - and the working tree is compared with that.
+#
+# Usage: apply-patches.sh [console|arcade]     (both, without an argument)
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
-# DUCKSTATION_TREE points it at another checkout: how this script is tested without
-# touching the tree a build depends on
-tree="${DUCKSTATION_TREE:-$root/extern/duckstation}"
+
+# <submodule, relative> <patch directory, relative>
+apply_series() {
+sub="$1"
+series="$root/$2"
+# DUCKSTATION_TREE points the console's series at another checkout: how this
+# script is tested without touching the tree a build depends on
+tree="$root/$sub"
+[ "$sub" = extern/duckstation ] && tree="${DUCKSTATION_TREE:-$tree}"
 
 if [ "$(git -C "$tree" rev-parse --show-toplevel 2>/dev/null)" != "$(cd "$tree" 2>/dev/null && pwd -P)" ]; then
-	echo "extern/duckstation is not checked out; run:" >&2
-	echo "  git -C $root submodule update --init --recursive extern/duckstation" >&2
+	echo "$sub is not checked out; run:" >&2
+	echo "  git -C $root submodule update --init $sub" >&2
 	exit 1
 fi
 
@@ -33,7 +43,7 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
 # every file the series touches (a created or deleted file has /dev/null on one side)
-cat "$root"/patches/*.patch | sed -n 's#^--- a/##p; s#^+++ b/##p' | sort -u > "$scratch/touched"
+cat "$series"/*.patch | sed -n 's#^--- a/##p; s#^+++ b/##p' | sort -u > "$scratch/touched"
 
 # the scratch copy: those files as HEAD has them (one the series creates is absent)
 mkdir "$scratch/tree"
@@ -59,7 +69,7 @@ done < "$scratch/touched"
 # The series is tried on the scratch copy FIRST, whichever state the tree is in:
 # a series that does not apply in order must be found out here, and not half
 # way through applying it to the real tree.
-for p in "$root"/patches/*.patch; do
+for p in "$series"/*.patch; do
 	(cd "$scratch/tree" && git apply "$p") || {
 		echo "the series does not apply to the submodule's HEAD at $(basename "$p") - was the submodule moved without rebasing the patches?" >&2
 		exit 1
@@ -68,11 +78,12 @@ done
 
 
 if [ "$pristine" -eq 1 ]; then
-	for p in "$root"/patches/*.patch; do
+	for p in "$series"/*.patch; do
 		git -C "$tree" apply "$p"
-		echo "applied: $(basename "$p")"
+		echo "applied: $sub $(basename "$p")"
 	done
-	exit 0
+	rm -rf "$scratch"
+	return 0
 fi
 
 # not pristine: it must then be EXACTLY what the whole series leaves behind
@@ -86,9 +97,18 @@ while IFS= read -r f; do
 done < "$scratch/touched"
 
 if [ "$wrong" -ne 0 ]; then
-	echo "extern/duckstation is partly patched. To start again from the submodule's HEAD:" >&2
-	echo "  git -C extern/duckstation reset --hard && git -C extern/duckstation clean -fd && waterbox/apply-patches.sh" >&2
+	echo "$sub is partly patched. To start again from the submodule's HEAD:" >&2
+	echo "  git -C $sub reset --hard && git -C $sub clean -fd && waterbox/apply-patches.sh" >&2
 	echo "(that discards edits made in the tree - turn them into a patch first)" >&2
 	exit 1
 fi
-echo "already applied: all $(ls "$root"/patches/*.patch | wc -l) patches"
+rm -rf "$scratch"
+echo "already applied: $sub, all $(ls "$series"/*.patch | wc -l) patches"
+}
+
+case "${1:-both}" in
+	console) apply_series extern/duckstation patches ;;
+	arcade) apply_series extern/arcadeduck patches-arcade ;;
+	both) apply_series extern/duckstation patches; apply_series extern/arcadeduck patches-arcade ;;
+	*) echo "usage: apply-patches.sh [console|arcade]" >&2; exit 2 ;;
+esac

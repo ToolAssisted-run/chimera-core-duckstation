@@ -21,15 +21,11 @@
 
 #include "core/bios.h"
 #include "core/bus.h"
-#include "core/controller.h"
 #include "core/cpu_core.h"
 #include "core/game_database.h"
 #include "core/gpu.h"
 #include "core/gpu_hw.h"
 #include "core/host.h"
-#include "core/memory_card.h"
-#include "core/memory_card_image.h"
-#include "core/pad.h"
 #include "core/settings.h"
 #include "core/spu.h"
 #include "core/system.h"
@@ -44,6 +40,20 @@
 #include "common/file_system.h"
 #include "common/log.h"
 #include "common/memory_settings_interface.h"
+
+#ifdef CHIMERA_ARCADE
+#include "core/arcade/arcade_control_registry.h"
+#include "core/arcade/arcade_database.h"
+#include "core/arcade/arcade_input.h"
+#include "core/arcade/arcade_machine_handler.h"
+#else
+#include "core/controller.h"
+#include "core/memory_card.h"
+#include "core/memory_card_image.h"
+#include "core/pad.h"
+#endif
+
+#include "machine.h"
 
 // waterbox/audio-stream.cpp
 extern "C" int ChimeraAudioTake(int16_t* out, int max_frames);
@@ -94,193 +104,17 @@ size_t g_videoCapacity;   // pixels g_video has room for
 std::unique_ptr<MemorySettingsInterface> g_settingsLayer;
 std::string g_rendererWanted = "software";
 
-// ---- the wire ----------------------------------------------------------------
+// ---- the machine ---------------------------------------------------------------
 
-// What waterbox.config declares, in its order: per port the DualShock's
-// seventeen buttons and its four stick bytes. A digital pad is the first
-// sixteen; a port with nothing in it is none of them.
-constexpr int PORTS = 2;
-constexpr int PORT_BUTTONS = 17;
-constexpr int PORT_AXES = 4;
-constexpr int WIRE_ANALOG = 16;
-
-// wire order -> upstream's bind index (the same numbers for the digital pad
-// and the DualShock, which is the order the pad's own report has them in)
-constexpr u8 kBind[PORT_BUTTONS] = {
-  4,  // Up
-  6,  // Down
-  7,  // Left
-  5,  // Right
-  3,  // Start
-  0,  // Select
-  15, // Square
-  14, // Cross
-  13, // Circle
-  12, // Triangle
-  10, // L1
-  11, // R1
-  8,  // L2
-  9,  // R2
-  1,  // L3
-  2,  // R3
-  16, // Analog
-};
-
-ControllerType g_portType[PORTS] = {ControllerType::None, ControllerType::None};
-u8 g_held[PORTS][PORT_BUTTONS];
-u8 g_stick[PORTS][PORT_AXES] = {{128, 128, 128, 128}, {128, 128, 128, 128}};
-
-// After the pads, the console's own controls: its Reset button, and the lid.
-constexpr int WIRE_CONSOLE = PORTS * PORT_BUTTONS;
-constexpr int WIRE_RESET = WIRE_CONSOLE + 0;
-constexpr int WIRE_PREV_DISC = WIRE_CONSOLE + 1;
-constexpr int WIRE_NEXT_DISC = WIRE_CONSOLE + 2;
-constexpr int WIRE_DISC_SWAP = WIRE_CONSOLE + 3;
-constexpr int WIRE_COUNT = WIRE_CONSOLE + 4;
-u8 g_console[4];     // as held this frame
-u8 g_consoleWas[4];  // as held the frame before
-
-// ---- the discs ---------------------------------------------------------------
-
-// Every disc the project put in its Disc slot, in the slot's order, which is
-// the order the selector steps through. All of it is the machine's - which
-// disc is in the drive, which one the selector is on, whether the lid is up -
-// and travels in a state, so a movie that changes discs replays the change.
-constexpr int MAX_DISCS = 8;
-char g_discs[MAX_DISCS][512];
-int g_discCount;
-int g_discInserted = -1; // -1: the lid is up, or the tray was empty all along
-int g_discWasInserted;   // the disc that was in when the lid went up
-int g_discSelected;
-bool g_lidUp;
-int g_driveLight;        // the drive read a sector this frame
-
-void DiscControls()
-{
-  const bool prev = g_console[1] && !g_consoleWas[1];
-  const bool next = g_console[2] && !g_consoleWas[2];
-  if (g_discCount > 1)
-  {
-    // PREVIOUS and NEXT are a selector: they choose, and touch no hardware.
-    // They wrap both ways (chimera issue 47: a selector that ran off the end
-    // could never reach the second disc again).
-    if (prev)
-      g_discSelected = (g_discSelected + g_discCount - 1) % g_discCount;
-    if (next)
-      g_discSelected = (g_discSelected + 1) % g_discCount;
-    if ((prev || next) && chimera_verbose)
-      std::fprintf(stderr, "duckstation: disc selector: %d of %d (%s)\n", g_discSelected + 1, g_discCount,
-                   g_discs[g_discSelected]);
-  }
-
-  // DISC SWAP is the lid. Held, it is up: the drive reports the shell open
-  // and no disc, which is what a game asking for its next disc waits to see.
-  // Released, the SELECTED disc is in and the drive spins it up. Both in one
-  // frame would be a lid that never opened as far as a polling game can
-  // tell, so how long it stays up is how long the button is held - the
-  // player's decision, and the movie's. With the selector untouched the lid
-  // closes on the next disc, so the button alone steps through them.
-  const bool up = g_console[3] != 0;
-  if (up == g_lidUp || g_discCount == 0)
-    return;
-
-  g_lidUp = up;
-  if (up)
-  {
-    System::RemoveMedia();
-    g_discInserted = -1;
-    return;
-  }
-
-  if (g_discCount > 1 && g_discSelected == g_discWasInserted)
-    g_discSelected = (g_discWasInserted + 1) % g_discCount;
-  if (System::InsertMedia(g_discs[g_discSelected]))
-  {
-    g_discInserted = g_discSelected;
-    g_discWasInserted = g_discSelected;
-  }
-  else
-  {
-    // the lid stays up on an empty tray: a drive that believes it holds a
-    // disc it cannot read is worse than one that knows it is empty
-    g_lidUp = true;
-    std::fprintf(stderr, "duckstation: disc %d (%s) will not open; the lid stays up\n", g_discSelected + 1,
-                 g_discs[g_discSelected]);
-  }
-}
-
-// ---- memory cards -------------------------------------------------------------
-
-// A card is 128KB of the machine's own memory (upstream's non-persistent
-// kind): it is in every state, it rewinds with the game that wrote it, and
-// nothing reaches a disk. What a project starts with comes in through its
-// Save Data slot under the names below, and what a session ends with leaves
-// through the save-data exports under the same names, so one round-trips
-// into the other.
-constexpr int CARDS = 2;
-constexpr const char* kCardNames[CARDS] = {"memcard1.mcd", "memcard2.mcd"};
-bool g_cardPresent[CARDS];
-
-// The card image a project brought, into the card the console booted with.
-// False, with g_loadError set, for a file that is not a card.
-bool SeedCard(int slot)
-{
-  if (!FileSystem::FileExists(kCardNames[slot]))
-    return true;
-
-  MemoryCard* const card = Pad::GetMemoryCard(static_cast<u32>(slot));
-  if (!card)
-  {
-    snprintf(g_loadError, sizeof(g_loadError),
-             "the project brings %s, and Memory Card %d is switched off: turn the card on, or take the file out.",
-             kCardNames[slot], slot + 1);
-    return false;
-  }
-
-  std::FILE* const f = std::fopen(kCardNames[slot], "rb");
-  MemoryCardImage::DataArray& data = card->GetData();
-  u8 extra;
-  const bool ok = f && std::fread(data.data(), 1, data.size(), f) == data.size() && std::fread(&extra, 1, 1, f) == 0;
-  if (f)
-    std::fclose(f);
-  if (!ok || !MemoryCardImage::IsValid(data))
-  {
-    snprintf(g_loadError, sizeof(g_loadError),
-             "%s is not a PlayStation memory card image: a card is exactly 131072 bytes beginning \"MC\" (the "
-             "usual .mcd, .mcr or .mc). Convert a .gme, .vgs or single-save file with a card manager first.",
-             kCardNames[slot]);
-    return false;
-  }
-  return true;
-}
-
-ControllerType ParsePort(const char* key, ControllerType dflt)
-{
-  char v[24] = "";
-  if (wbx_setting_str(key, v, sizeof(v)) < 0)
-    return dflt;
-  if (!strcmp(v, "none"))
-    return ControllerType::None;
-  if (!strcmp(v, "digital"))
-    return ControllerType::DigitalController;
-  if (!strcmp(v, "dualshock"))
-    return ControllerType::AnalogController;
-  return dflt;
-}
-
-// One stick byte, put where the pad will report it from. Upstream's pad takes
-// each direction of a stick as a separate half axis, scales it to 0..255 and
-// merges the pair: 127 + (positive + 1) / 2, or 127 - negative / 2. Inverted,
-// every byte has one pair that produces it, and the half-unit added below is
-// what makes the float survive the truncation on the other side.
-void SetStickByte(Controller* c, u32 positive, u32 negative, u8 value)
-{
-  const u32 pos = (value >= 128) ? (2u * value - 255u) : 0u;
-  const u32 neg = (value >= 128) ? 0u : (2u * (127u - value));
-  const u32 first = 17u; // AnalogController::Button::Count
-  c->SetBindState(first + negative, (static_cast<float>(neg) + 0.5f) / 255.0f);
-  c->SetBindState(first + positive, (static_cast<float>(pos) + 0.5f) / 255.0f);
-}
+// This file is compiled twice: against extern/duckstation for the console, and
+// against extern/arcadeduck for the arcade boards (meson.build, "one binary,
+// two machines"). What differs between them - what is plugged in, what is
+// booted, what is saved - is behind these, in machine-console.inc and
+// machine-arcade.inc.
+void MachineApplySettings(SettingsInterface& si);
+bool MachineBoot(Error* error);
+void MachineBeforeFrame();
+void MachineAfterFrame();
 
 void Fail(const char* what, const Error& error)
 {
@@ -292,61 +126,6 @@ bool Exists(const char* name)
   return FileSystem::FileExists(name);
 }
 
-// ---- a file with no name ------------------------------------------------------
-
-// A file the frontend was handed directly - dropped on it, or named on a
-// command line - is mounted as "disc": no project, no slot map, no extension.
-// DuckStation decides what an image is by its extension, so the bytes are
-// asked instead and the file is given the name it should have had. Returns
-// the name to boot, or null with g_loadError saying why not.
-const char* NameTheBareFile()
-{
-  static char name[32];
-  u8 head[16] = {};
-  std::FILE* f = std::fopen("disc", "rb");
-  if (!f)
-    return nullptr;
-  const size_t got = std::fread(head, 1, sizeof(head), f);
-  std::fclose(f);
-
-  // A project with nothing in its Disc slot still mounts the name, with
-  // nothing in it: that is an empty tray, not a file to be refused.
-  if (got == 0)
-    return nullptr;
-
-  static const u8 kSync[12] = {0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
-  const char* ext;
-  if (got >= 8 && !std::memcmp(head, "MComprHD", 8))
-    ext = "chd";
-  else if (got >= 8 && !std::memcmp(head, "PS-X EXE", 8))
-    ext = "exe";
-  else if (got >= 4 && !std::memcmp(head, "\0PBP", 4))
-    ext = "pbp";
-  else if (got >= 4 && !std::memcmp(head, "ECM\0", 4))
-    ext = "ecm";
-  else if (got >= 12 && !std::memcmp(head, kSync, 12))
-    ext = "bin";
-  else
-  {
-    // Not a raw sector and nothing with a signature. A cue sheet is the
-    // likely one: text, and useless alone, because the files it names were
-    // not mounted with it.
-    bool text = (got > 0);
-    for (size_t i = 0; i < got; i++)
-      text = text && (head[i] == 0x09 || head[i] == 0x0A || head[i] == 0x0D || (head[i] >= 0x20 && head[i] < 0x7F) ||
-                      head[i] >= 0x80);
-    snprintf(g_loadError, sizeof(g_loadError),
-             text ? "this is a cue sheet, and it was opened without the files it names. Make a project and put the "
-                    ".cue in its Disc slot: the frontend then brings every file the sheet refers to." :
-                    "this file is not a disc image this core knows: not a CHD, a PBP, an ECM, a PlayStation "
-                    "executable, or raw 2352-byte CD sectors.");
-    return nullptr;
-  }
-
-  snprintf(name, sizeof(name), "disc.%s", ext);
-  ChimeraFileAlias(name, "disc");
-  return name;
-}
 
 // ---- the picture ------------------------------------------------------------
 
@@ -718,34 +497,8 @@ void ApplySettings(SettingsInterface& si)
                     Settings::GetDisplayDeinterlacingModeName(DisplayDeinterlacingMode::Disabled));
   si.SetBoolValue("Display", "24BitChromaSmoothing", false);
 
-  // What is in each port. A DualShock in the first and nothing in the second
-  // is what a fresh DuckStation has; a game its database says cannot use a
-  // DualShock is given the digital pad instead, by upstream, at boot.
-  g_portType[0] = ParsePort("port1", ControllerType::AnalogController);
-  g_portType[1] = ParsePort("port2", ControllerType::None);
-  for (int port = 0; port < PORTS; port++)
-  {
-    const std::string section = Controller::GetSettingsSection(static_cast<u32>(port));
-    si.SetStringValue(section.c_str(), "Type", Controller::GetControllerInfo(g_portType[port])->name);
-    // A stick byte is the byte the movie says: no curve, no dead zone, and no
-    // stick standing in for the d-pad - that last one is an emulator's
-    // convenience, and a pad in digital mode does not report its sticks.
-    si.SetFloatValue(section.c_str(), "AnalogSensitivity", 1.0f);
-    si.SetFloatValue(section.c_str(), "AnalogDeadzone", 0.0f);
-    si.SetBoolValue(section.c_str(), "AnalogDPadInDigitalMode", false);
-    si.SetIntValue(section.c_str(), "InvertLeftStick", 0);
-    si.SetIntValue(section.c_str(), "InvertRightStick", 0);
-  }
-  // Memory cards: in the machine's own memory, or not plugged in.
-  g_cardPresent[0] = wbx_setting_bool("memcard1", 1) != 0;
-  g_cardPresent[1] = wbx_setting_bool("memcard2", 0) != 0;
-  si.SetStringValue("MemoryCards", "Card1Type",
-                    Settings::GetMemoryCardTypeName(g_cardPresent[0] ? MemoryCardType::NonPersistent :
-                                                                       MemoryCardType::None));
-  si.SetStringValue("MemoryCards", "Card2Type",
-                    Settings::GetMemoryCardTypeName(g_cardPresent[1] ? MemoryCardType::NonPersistent :
-                                                                       MemoryCardType::None));
-  si.SetStringValue("ControllerPorts", "MultitapMode", Settings::GetMultitapModeName(MultitapMode::Disabled));
+  // what is plugged in, and where the machine was made
+  MachineApplySettings(si);
 
   si.SetStringValue("Audio", "Backend", AudioStream::GetBackendName(AudioBackend::Null));
 
@@ -775,27 +528,6 @@ void ApplySettings(SettingsInterface& si)
   si.SetBoolValue("Logging", "LogToDebug", false);
   si.SetBoolValue("Logging", "LogToWindow", false);
   si.SetStringValue("Logging", "LogLevel", Settings::GetLogLevelName(verbose ? LOGLEVEL_VERBOSE : LOGLEVEL_ERROR));
-
-  // Which market the console was made for. "auto" is upstream's own where
-  // there is a disc: the disc decides. With an empty tray the ROM does (Init).
-  {
-    char region[16] = "auto";
-    wbx_setting_str("region", region, sizeof(region));
-    ConsoleRegion r = ConsoleRegion::Auto;
-    if (!strcmp(region, "ntsc-u"))
-      r = ConsoleRegion::NTSC_U;
-    else if (!strcmp(region, "ntsc-j"))
-      r = ConsoleRegion::NTSC_J;
-    else if (!strcmp(region, "pal"))
-      r = ConsoleRegion::PAL;
-    si.SetStringValue("Console", "Region", Settings::GetConsoleRegionName(r));
-  }
-
-  // one firmware, whatever the region: the project chose it
-  si.SetStringValue("BIOS", "SearchDirectory", "");
-  si.SetStringValue("BIOS", "PathNTSCU", "bios");
-  si.SetStringValue("BIOS", "PathNTSCJ", "bios");
-  si.SetStringValue("BIOS", "PathPAL", "bios");
 }
 
 void SetFolders()
@@ -812,7 +544,9 @@ void SetFolders()
   EmuFolders::GameIcons = "./";
   EmuFolders::GameSettings = "./";
   EmuFolders::InputProfiles = "./";
+#ifndef CHIMERA_ARCADE
   EmuFolders::MemoryCards = "./";
+#endif
   EmuFolders::Resources = "./";
   EmuFolders::SaveStates = "./";
   EmuFolders::Screenshots = "./";
@@ -853,14 +587,23 @@ extern "C" void ChimeraFrameDone(void)
 {
 }
 
-extern "C" {
+#ifdef CHIMERA_ARCADE
+#include "machine-arcade.inc"
+#else
+#include "machine-console.inc"
+#endif
 
-ECL_EXPORT const char* GetLoadError(void)
+// ---- the guest ABI, as this machine answers it ----------------------------------
+//
+// Not exported from here: waterbox/dispatch.c is what the frontend calls, and
+// it comes through the table at the end of this file.
+
+static const char* GetLoadError(void)
 {
   return g_loadError;
 }
 
-ECL_EXPORT int Init(void)
+static int Init(void)
 {
   g_loadError[0] = '\0';
 
@@ -891,7 +634,12 @@ ECL_EXPORT int Init(void)
   if (chimera_gl_bridged() && g_rendererWanted != "software")
   {
     g_vramRoomWidth = 1024u * static_cast<u32>(g_scale);
+#ifdef CHIMERA_ARCADE
+    // a board's VRAM is 1024 lines on some of them, twice the console's
+    g_vramRoomHeight = 1024u * static_cast<u32>(g_scale);
+#else
     g_vramRoomHeight = 512u * static_cast<u32>(g_scale);
+#endif
     const size_t bytes = static_cast<size_t>(g_vramRoomWidth) * g_vramRoomHeight * 4u;
     g_vramKept = static_cast<u8*>(std::calloc(bytes, 1));
     g_vramFetch = static_cast<u8*>(alloc_invisible(bytes));
@@ -911,115 +659,8 @@ ECL_EXPORT int Init(void)
     return 0;
   }
 
-  // The per-title database, loaded HERE rather than where upstream first asks
-  // for it: before the guest is sealed, so it costs nothing in every state
-  // afterwards, and before the machine is asked for anything else, so a core
-  // with an EMPTY database can be caught with no BIOS and no disc at all.
-  // "gamedb_probe" is a question put to the core, not a setting: it is not in
-  // waterbox.config, it changes nothing, and a movie must not carry it.
-  GameDatabase::EnsureLoaded();
-  {
-    char probe[32] = "";
-    if (wbx_setting_str("gamedb_probe", probe, sizeof(probe)) > 0)
-    {
-      const GameDatabase::Entry* const entry = GameDatabase::GetEntryForSerial(probe);
-      std::fprintf(stderr, "duckstation: gamedb probe: %s = %s\n", probe, entry ? entry->title.c_str() : "(not on record)");
-    }
-  }
-
-  if (!Exists("bios"))
-  {
-    snprintf(g_loadError, sizeof(g_loadError),
-             "no bios: a PlayStation needs its ROM, and this core carries none. Add one to the project's firmware.");
+  if (!MachineBoot(&error))
     return 0;
-  }
-
-  // The disc, if the project has one. A PlayStation with an empty tray is a
-  // PlayStation sitting at its own menu, which is a machine worth booting.
-  SystemBootParameters params;
-  char name[512];
-  g_discCount = std::min<int>(wbx_slot_count("disc"), MAX_DISCS);
-  for (int i = 0; i < g_discCount; i++)
-  {
-    if (wbx_slot_name("disc", i, g_discs[i], sizeof(g_discs[i])) == nullptr)
-    {
-      g_discCount = i;
-      break;
-    }
-  }
-  if (g_discCount > 0)
-  {
-    // a project: every disc is mounted under its own name, extension and all
-    params.filename = g_discs[0];
-    g_discInserted = 0;
-  }
-  else if (Exists("disc"))
-  {
-    const char* const bare = NameTheBareFile();
-    if (!bare && g_loadError[0] != '\0')
-      return 0;
-    if (bare)
-    {
-      params.filename = bare;
-      snprintf(g_discs[0], sizeof(g_discs[0]), "%s", bare);
-      g_discCount = 1;
-      g_discInserted = 0;
-    }
-  }
-
-  // What a project put in its Save Data slot must be something this machine
-  // reads. A saved game under a name nothing opens, booting to a blank card,
-  // is worse than a project that will not boot.
-  {
-    char entry[512];
-    const int saves = wbx_slot_count("savedata");
-    for (int i = 0; i < saves; i++)
-    {
-      if (wbx_slot_name("savedata", i, entry, sizeof(entry)) == nullptr)
-        break;
-      bool known = false;
-      for (int c = 0; c < CARDS; c++)
-        known = known || (strcmp(entry, kCardNames[c]) == 0);
-      if (!known)
-      {
-        snprintf(g_loadError, sizeof(g_loadError),
-                 "the project's save data has a file called %s, and this console reads memcard1.mcd and "
-                 "memcard2.mcd: rename it to the card it is.",
-                 entry);
-        return 0;
-      }
-    }
-  }
-
-  // An empty tray gives "auto" nothing to read, and upstream then makes a
-  // North American console of it whatever ROM is inside. Upstream can: it
-  // picks the ROM to suit the region. Here the project picked the ROM, and a
-  // European one puts the video chip in PAL mode on a console clocked for
-  // NTSC - 314 lines off the wrong crystal, a field rate that is neither's,
-  // and a frame rate declared to the frontend that the machine does not keep.
-  // The ROM is the console it was made for, so with no disc the region is
-  // the ROM's.
-  if (g_settings.region == ConsoleRegion::Auto && g_discCount == 0)
-  {
-    const std::optional<BIOS::Image> rom = BIOS::LoadImageFromFile("bios", nullptr);
-    if (rom.has_value() && rom->info && rom->info->region != ConsoleRegion::Auto)
-      g_settings.region = rom->info->region;
-  }
-
-  params.override_fullscreen = false;
-  params.override_start_paused = false;
-
-  if (!System::BootSystem(std::move(params), &error))
-  {
-    Fail("the machine would not boot", error);
-    return 0;
-  }
-
-  for (int c = 0; c < CARDS; c++)
-  {
-    if (!SeedCard(c))
-      return 0;
-  }
 
   // The field rate, exactly: the video crystal over the ticks in a line times
   // the lines in a field, as the machine booted. 59.826 Hz on an NTSC
@@ -1047,116 +688,7 @@ ECL_EXPORT int Init(void)
   return 1;
 }
 
-ECL_EXPORT void SetButton(int32_t index, int32_t state)
-{
-  if (index >= WIRE_CONSOLE && index < WIRE_COUNT)
-  {
-    g_console[index - WIRE_CONSOLE] = state ? 1 : 0;
-    return;
-  }
-  if (index < 0 || index >= PORTS * PORT_BUTTONS)
-    return;
-
-  const int port = index / PORT_BUTTONS;
-  const int wire = index % PORT_BUTTONS;
-  const u8 held = state ? 1 : 0;
-  const u8 was = g_held[port][wire];
-  g_held[port][wire] = held;
-
-  Controller* const c = Pad::GetController(static_cast<u32>(port));
-  if (!c)
-    return;
-
-  if (wire == WIRE_ANALOG)
-  {
-    // The Analog button is a toggle on the pad itself, and upstream toggles
-    // every time it is TOLD the button is down: it is told once per press.
-    if (held && !was && c->GetType() == ControllerType::AnalogController)
-      c->SetBindState(kBind[wire], 1.0f);
-    return;
-  }
-
-  c->SetBindState(kBind[wire], held ? 1.0f : 0.0f);
-}
-
-/* Which of the declared wires the machine can see: the frontend greys out the
- * rest. What a port holds is decided at boot (a setting, and upstream's game
- * database on top of it), so the controller that is there is asked. */
-ECL_EXPORT int IsButtonActive(int32_t index)
-{
-  // Reset always; the lid when there is a disc to put under it; the selector
-  // when there is more than one to choose from
-  if (index == WIRE_RESET)
-    return 1;
-  if (index == WIRE_DISC_SWAP)
-    return g_discCount > 0 ? 1 : 0;
-  if (index == WIRE_PREV_DISC || index == WIRE_NEXT_DISC)
-    return g_discCount > 1 ? 1 : 0;
-  if (index < 0 || index >= PORTS * PORT_BUTTONS)
-    return 0;
-
-  const Controller* const c = Pad::GetController(static_cast<u32>(index / PORT_BUTTONS));
-  if (!c)
-    return 0;
-
-  const int wire = index % PORT_BUTTONS;
-  switch (c->GetType())
-  {
-    case ControllerType::AnalogController:
-      return 1;
-    case ControllerType::DigitalController:
-      // a digital pad has no stick to click and no Analog button
-      return (wire != 14 && wire != 15 && wire != WIRE_ANALOG) ? 1 : 0;
-    default:
-      return 0;
-  }
-}
-
-ECL_EXPORT int IsAxisActive(int32_t index)
-{
-  if (index < 0 || index >= PORTS * PORT_AXES)
-    return 0;
-
-  const Controller* const c = Pad::GetController(static_cast<u32>(index / PORT_AXES));
-  return (c && c->GetType() == ControllerType::AnalogController) ? 1 : 0;
-}
-
-ECL_EXPORT void SetAxis(int32_t index, int32_t value)
-{
-  if (index < 0 || index >= PORTS * PORT_AXES)
-    return;
-
-  const int port = index / PORT_AXES;
-  const int axis = index % PORT_AXES;
-  const u8 byte = static_cast<u8>(std::clamp<int32_t>(value, 0, 255));
-  if (g_stick[port][axis] == byte)
-    return;
-  g_stick[port][axis] = byte;
-
-  Controller* const c = Pad::GetController(static_cast<u32>(port));
-  if (!c || c->GetType() != ControllerType::AnalogController)
-    return;
-
-  // AnalogController::HalfAxis: LLeft LRight LDown LUp RLeft RRight RDown RUp.
-  // A stick byte grows to the right and downwards.
-  switch (axis)
-  {
-    case 0:
-      SetStickByte(c, 1, 0, byte);
-      break;
-    case 1:
-      SetStickByte(c, 2, 3, byte);
-      break;
-    case 2:
-      SetStickByte(c, 5, 4, byte);
-      break;
-    default:
-      SetStickByte(c, 6, 7, byte);
-      break;
-  }
-}
-
-ECL_EXPORT void FrameAdvance(uint64_t packed)
+static void FrameAdvance(uint64_t packed)
 {
   g_inputRead = 0;
   g_nsamples = 0;
@@ -1167,13 +699,8 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
   CheckGLContext();
 #endif
 
-  // The console's own controls, before the frame they are held for. Reset is
-  // the button on the case: pressed, the machine starts again with whatever
-  // is in the drive and on the cards.
-  DiscControls();
-  if (g_console[0] && !g_consoleWas[0])
-    System::ResetSystem();
-  std::memcpy(g_consoleWas, g_console, sizeof(g_console));
+  // the machine's own controls, before the frame they are held for
+  MachineBeforeFrame();
   g_driveLightNow = 0;
 
   // One frame: Host::PumpMessagesOnCPUThread pauses the system at the end of
@@ -1183,7 +710,7 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
 
   // Turbo skips the readback, never the drawing: what the renderer draws
   // stays in VRAM, and a frame not drawn is a picture lost, not deferred.
-  g_driveLight = g_driveLightNow;
+  MachineAfterFrame();
   if (g_renderEnabled)
     ComposeFrame();
   g_nsamples = ChimeraAudioTake(g_soundOut, MAX_AUDIO_FRAMES);
@@ -1193,7 +720,7 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
  * greenzone restore - with the machine stopped and before it runs again. The
  * one thing this core keeps that a load invalidates is its claim about which
  * GL context its objects came from. */
-ECL_EXPORT void StateLoaded(void)
+static void StateLoaded(void)
 {
 #ifdef CHIMERA_GUEST_GL
   g_glStateLoaded = true;
@@ -1207,7 +734,7 @@ ECL_EXPORT void StateLoaded(void)
  * already, and not when the objects are another context's - a state taken
  * after a load and before the next frame, whose copy is the one the load
  * brought. */
-ECL_EXPORT void StateSaving(void)
+static void StateSaving(void)
 {
 #ifdef CHIMERA_GUEST_GL
   if (!g_booted || !chimera_gl_bridged() || !g_gpu_device || g_gpu_device->GetRenderAPI() != RenderAPI::OpenGL)
@@ -1229,7 +756,7 @@ ECL_EXPORT void StateSaving(void)
  * A machine drawn this way is not the deterministic one: the GPU is outside
  * the sandbox, outside the savestate and different on every machine. */
 #ifdef CHIMERA_GUEST_GL
-ECL_EXPORT void SetGpuBridge(uint64_t addr)
+static void SetGpuBridge(uint64_t addr)
 {
   if (!chimera_gl_bridge_start(reinterpret_cast<chimera_gl_bridge_fn>(addr)))
     std::fprintf(stderr, "duckstation: the GPU bridge was offered and refused\n");
@@ -1239,7 +766,7 @@ ECL_EXPORT void SetGpuBridge(uint64_t addr)
 /* For the gate, not for the frontend: where the machine is, as one number.
  * Its clock and where its processor is about to execute, which two runs that
  * have parted company cannot share for long. */
-ECL_EXPORT uint64_t ChimeraMachineDigest(void)
+static uint64_t ChimeraMachineDigest(void)
 {
   uint64_t h = static_cast<uint64_t>(TimingEvents::GetGlobalTickCounter());
   h = (h * UINT64_C(1099511628211)) ^ CPU::g_state.pc;
@@ -1249,62 +776,62 @@ ECL_EXPORT uint64_t ChimeraMachineDigest(void)
   return h;
 }
 
-ECL_EXPORT void SetRenderingEnabled(int on)
+static void SetRenderingEnabled(int on)
 {
   g_renderEnabled = (on != 0);
 }
 
-ECL_EXPORT uint32_t* GetVideoBgra(void)
+static uint32_t* GetVideoBgra(void)
 {
   return g_video;
 }
 
-ECL_EXPORT int GetVideoWidth(void)
+static int GetVideoWidth(void)
 {
   return g_videoWidth;
 }
-ECL_EXPORT int GetVideoHeight(void)
+static int GetVideoHeight(void)
 {
   return g_videoHeight;
 }
 
-ECL_EXPORT int16_t* GetAudio(void)
+static int16_t* GetAudio(void)
 {
   return g_soundOut;
 }
-ECL_EXPORT int GetAudioSampleCount(void)
+static int GetAudioSampleCount(void)
 {
   return g_nsamples;
 }
 
-ECL_EXPORT int GetVsyncNumerator(void)
+static int GetVsyncNumerator(void)
 {
   return g_vsyncNum;
 }
-ECL_EXPORT int GetVsyncDenominator(void)
+static int GetVsyncDenominator(void)
 {
   return g_vsyncDen;
 }
 
-ECL_EXPORT int InputWasRead(void)
+static int InputWasRead(void)
 {
   return g_inputRead;
 }
 
 // ---- memory domains ---------------------------------------------------------
 
-ECL_EXPORT int GetMemoryDomainCount(void)
+static int GetMemoryDomainCount(void)
 {
   return 2;
 }
 
-ECL_EXPORT const char* GetMemoryDomainName(int which)
+static const char* GetMemoryDomainName(int which)
 {
   static const char* const names[] = {"Main RAM", "BIOS ROM"};
   return (which >= 0 && which < 2) ? names[which] : "";
 }
 
-ECL_EXPORT uint8_t* GetMemoryDomainPtr(int which)
+static uint8_t* GetMemoryDomainPtr(int which)
 {
   switch (which)
   {
@@ -1317,7 +844,7 @@ ECL_EXPORT uint8_t* GetMemoryDomainPtr(int which)
   }
 }
 
-ECL_EXPORT int64_t GetMemoryDomainSize(int which)
+static int64_t GetMemoryDomainSize(int which)
 {
   switch (which)
   {
@@ -1330,79 +857,59 @@ ECL_EXPORT int64_t GetMemoryDomainSize(int which)
   }
 }
 
-ECL_EXPORT int GetMemoryDomainWritable(int which)
+static int GetMemoryDomainWritable(int which)
 {
   return which == 0;
 }
 
-// ---- save data: the memory cards ----------------------------------------------
+// ---- the table --------------------------------------------------------------------
 
-static int g_saveList[CARDS];
-static int g_saveCount;
-
-ECL_EXPORT int32_t GetSaveDataFileCount(void)
-{
-  g_saveCount = 0;
-  for (int c = 0; c < CARDS; c++)
-  {
-    if (g_booted && Pad::GetMemoryCard(static_cast<u32>(c)))
-      g_saveList[g_saveCount++] = c;
-  }
-  return g_saveCount;
-}
-
-ECL_EXPORT const char* GetSaveDataFileName(int32_t i)
-{
-  return (i >= 0 && i < g_saveCount) ? kCardNames[g_saveList[i]] : "";
-}
-
-ECL_EXPORT int64_t GetSaveDataFileSize(int32_t i)
-{
-  return (i >= 0 && i < g_saveCount) ? static_cast<int64_t>(MemoryCardImage::DATA_SIZE) : 0;
-}
-
-ECL_EXPORT const uint8_t* GetSaveDataFileBuffer(int32_t i)
-{
-  if (i < 0 || i >= g_saveCount)
-    return nullptr;
-  MemoryCard* const card = Pad::GetMemoryCard(static_cast<u32>(g_saveList[i]));
-  return card ? card->GetData().data() : nullptr;
-}
-
-// ---- the drive ------------------------------------------------------------------
-
-/* One drive, when the project put a disc in it. Lit on a frame the console
- * read a sector. Which disc it holds and which the selector is on are told
- * apart, because the console tells them apart: between Next Disc and the lid
- * closing, the drive holds one disc - or none - and the selector is on
- * another. */
-ECL_EXPORT int32_t GetDriveCount(void)
-{
-  return g_discCount > 0 ? 1 : 0;
-}
-ECL_EXPORT const char* GetDriveName(int32_t i)
-{
-  return "CD";
-}
-ECL_EXPORT int32_t GetDriveLight(int32_t i)
-{
-  return g_driveLight;
-}
-ECL_EXPORT int32_t GetDriveMediaCount(int32_t i)
-{
-  return g_discCount;
-}
-ECL_EXPORT const char* GetDriveMediaName(int32_t i, int32_t n)
-{
-  return (n >= 0 && n < g_discCount) ? g_discs[n] : "";
-}
-ECL_EXPORT int32_t GetDriveMediaSelected(int32_t i)
-{
-  return g_discSelected;
-}
-ECL_EXPORT int32_t GetDriveMediaInserted(int32_t i)
-{
-  return g_discInserted;
+extern "C" {
+#ifdef CHIMERA_ARCADE
+extern const ChimeraMachine chimera_machine_arcade = {
+#else
+extern const ChimeraMachine chimera_machine_console = {
+#endif
+  GetLoadError,
+  Init,
+  SetButton,
+  IsButtonActive,
+  IsAxisActive,
+  SetAxis,
+  FrameAdvance,
+  StateLoaded,
+  StateSaving,
+#ifdef CHIMERA_GUEST_GL
+  SetGpuBridge,
+#else
+  nullptr,
+#endif
+  ChimeraMachineDigest,
+  SetRenderingEnabled,
+  GetVideoBgra,
+  GetVideoWidth,
+  GetVideoHeight,
+  GetAudio,
+  GetAudioSampleCount,
+  GetVsyncNumerator,
+  GetVsyncDenominator,
+  InputWasRead,
+  GetMemoryDomainCount,
+  GetMemoryDomainName,
+  GetMemoryDomainPtr,
+  GetMemoryDomainSize,
+  GetMemoryDomainWritable,
+  GetSaveDataFileCount,
+  GetSaveDataFileName,
+  GetSaveDataFileSize,
+  GetSaveDataFileBuffer,
+  GetDriveCount,
+  GetDriveName,
+  GetDriveLight,
+  GetDriveMediaCount,
+  GetDriveMediaName,
+  GetDriveMediaSelected,
+  GetDriveMediaInserted,
+};
 }
 
-} // extern "C"
