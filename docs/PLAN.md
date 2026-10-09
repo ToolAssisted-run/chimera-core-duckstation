@@ -1100,15 +1100,15 @@ trackball's counts go straight to the board that reads it.
   boards that read one (Konami GV, and Family Bowl on System 11), neither of
   which has a set here, and there is nothing to read them back from.
 
-### What ran, and what has not been broken yet
+### What ran, and each new leg seen to fail
 
 On 2026-10-09: the core gate 57 ok, 0 failed, 0 skipped, in sixteen minutes
 with another core's tests running beside it; the frontend gate 6 ok;
 Chimera's contract tests 13 of 13 (one more than before - Chimera gained
 one).
 
-Two of the eight new legs have been seen red, both for faults of the gate
-and not of the core, which is still a leg seen to fail:
+Two of the eight new legs went red before anything was broken, both for
+faults of the gate and not of the core:
 
 - `ports:columns` failed on two multitap arrangements because the test's
   own rule dropped an empty socket's group from between two live ones; the
@@ -1116,10 +1116,23 @@ and not of the core, which is still a leg seen to fail:
 - `gq:three` failed with "with and without player 3 are the SAME run",
   which was true: nobody had paid.
 
-The other six - `mouse:menu`, `guns:wire`, `multitap:pads`, `negcon:race`,
-`widescreen:machine`, `panel:wheel` - have NOT yet been broken on purpose.
-Each compares a run with the device used against one without, so each has a
-way to fail; none has been made to.
+Then one build was broken in seven places, each aimed at one leg, and the
+whole gate run on it: 49 ok, 8 failed - the eight new legs and no other.
+
+| broken on purpose | the leg that went red, and what it said |
+| --- | --- |
+| a mouse never told it moved | `mouse:menu`: "dragged and still are the SAME picture" |
+| a gun always aimed at the middle | `guns:wire`: "GunCon aim reaches nothing" - and nothing about its trigger, its off-screen shot or the Justifier, which were not broken |
+| no multitap whatever the setting says | `multitap:pads`: "pad 1B changes NOTHING ... with and without a multitap are the SAME machine"; and `ports:columns`, on its two multitap arrangements and not its four others |
+| a NeGcon never twisted | `negcon:race`: "the analog button is read; the twist changes NOTHING" |
+| the widescreen setting ignored | `widescreen:machine`: "with and without are the SAME machine - the setting changed nothing" |
+| a wheel held straight whatever the movie says | `panel:wheel`: the read-back says steering 32768 where the movie said three quarters over |
+| a panel of two players | `gq:three`: "player 3 joining and not are the SAME run; player 3 firing and standing are the SAME run" |
+
+Every one of them said "flavors agree", which is right: the breakage was in
+both. The two files were then restored and both flavors rebuilt, and
+`core.wbx` and `run-native` are byte for byte the ones the green gate ran
+(SHA-1 ab43d664 and a4ba3c6e).
 
 The gate's three legs that go through Chimera's engine ran on the engine as
 this machine had it built that morning; the frontend gate, the contract
