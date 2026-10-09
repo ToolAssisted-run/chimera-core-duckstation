@@ -11,39 +11,108 @@ namespace {
 
 // ---- the wire ----------------------------------------------------------------
 
-// What waterbox.config declares, in its order: per port the DualShock's
-// seventeen buttons and its four stick bytes. A digital pad is the first
-// sixteen; a port with nothing in it is none of them.
-constexpr int PORTS = 2;
-constexpr int PORT_BUTTONS = 17;
-constexpr int PORT_AXES = 4;
-constexpr int WIRE_ANALOG = 16;
+// What waterbox.config declares, in its order: eight sockets, and for each
+// every control any controller this console had could put there. The sockets
+// are upstream's own pads, in its order - port 1, port 2, then the three more
+// a multitap in port 1 gives (1B 1C 1D), then port 2's (2B 2C 2D) - so P1 and
+// P2 are the two ports whether or not a multitap is plugged in. What a socket
+// actually holds is a setting, and only that controller's wires are live.
+constexpr int PORTS = 8;
+constexpr int PORT_BUTTONS = 25;
+constexpr int PORT_AXES = 12;
+enum : int
+{
+  // a digital pad's fourteen, then what a DualShock or an analog joystick adds
+  W_UP, W_DOWN, W_LEFT, W_RIGHT, W_START, W_SELECT, W_SQUARE, W_CROSS, W_CIRCLE, W_TRIANGLE,
+  W_L1, W_R1, W_L2, W_R2, W_L3, W_R3, W_ANALOG,
+  // a NeGcon's A, B and R (its I, II and L are axes); a GunCon's A and B
+  W_A, W_B, W_R,
+  // a light gun's trigger, the shot aimed away from the screen, and the
+  // Justifier's button at the back
+  W_TRIGGER, W_OFFSCREEN, W_BACK,
+  // the mouse
+  W_MOUSE_LEFT, W_MOUSE_RIGHT,
+};
+enum : int
+{
+  A_LX, A_LY, A_RX, A_RY,       // a stick byte: 0..255, 128 at rest
+  A_TWIST, A_I, A_II, A_L,      // a NeGcon: the twist (128 at rest) and three analog buttons (0 at rest)
+  A_GUN_X, A_GUN_Y,             // where a gun is aimed: 0..65535 across the picture and down it
+  A_MOUSE_X, A_MOUSE_Y,         // how far the mouse moved this frame
+};
+constexpr int WIRE_ANALOG = W_ANALOG;
 
-// wire order -> upstream's bind index (the same numbers for the digital pad
-// and the DualShock, which is the order the pad's own report has them in)
-constexpr u8 kBind[PORT_BUTTONS] = {
-  4,  // Up
-  6,  // Down
-  7,  // Left
-  5,  // Right
-  3,  // Start
-  0,  // Select
-  15, // Square
-  14, // Cross
-  13, // Circle
-  12, // Triangle
-  10, // L1
-  11, // R1
-  8,  // L2
-  9,  // R2
-  1,  // L3
-  2,  // R3
-  16, // Analog
+// wire -> upstream's bind index, for each kind of controller; -1 where the
+// controller has no such control. A pad's are the same numbers for the
+// digital pad, the DualShock and the analog joystick, which is the order the
+// pad's own report has them in.
+constexpr s8 kPadBind[PORT_BUTTONS] = {
+  4, 6, 7, 5, 3, 0, 15, 14, 13, 12, 10, 11, 8, 9, 1, 2, 16, -1, -1, -1, -1, -1, -1, -1, -1,
+};
+constexpr s8 kNeGconBind[PORT_BUTTONS] = {
+  1, 3, 4, 2, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 7, 6, 5, -1, -1, -1, -1, -1,
+};
+constexpr s8 kGunConBind[PORT_BUTTONS] = {
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1, 2, -1, 0, 3, -1, -1, -1,
+};
+constexpr s8 kJustifierBind[PORT_BUTTONS] = {
+  -1, -1, -1, -1, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 3, 2, -1, -1,
+};
+constexpr s8 kMouseBind[PORT_BUTTONS] = {
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1,
 };
 
-ControllerType g_portType[PORTS] = {ControllerType::None, ControllerType::None};
+// The bind a wire is on the controller that is actually there (a setting, and
+// upstream's game database on top of it), or -1: the wire is not live.
+int BindOf(ControllerType type, int wire)
+{
+  switch (type)
+  {
+    case ControllerType::DigitalController:
+      return (wire <= W_R2) ? kPadBind[wire] : -1;
+    case ControllerType::AnalogController:
+    case ControllerType::AnalogJoystick:
+      return kPadBind[wire];
+    case ControllerType::NeGcon:
+    case ControllerType::NeGconRumble:
+      return kNeGconBind[wire];
+    case ControllerType::GunCon:
+      return kGunConBind[wire];
+    case ControllerType::Justifier:
+      return kJustifierBind[wire];
+    case ControllerType::PlayStationMouse:
+      return kMouseBind[wire];
+    default:
+      return -1;
+  }
+}
+
+bool HasAxis(ControllerType type, int axis)
+{
+  switch (type)
+  {
+    case ControllerType::AnalogController:
+    case ControllerType::AnalogJoystick:
+      return axis <= A_RY;
+    case ControllerType::NeGcon:
+    case ControllerType::NeGconRumble:
+      return axis >= A_TWIST && axis <= A_L;
+    case ControllerType::GunCon:
+    case ControllerType::Justifier:
+      return axis == A_GUN_X || axis == A_GUN_Y;
+    case ControllerType::PlayStationMouse:
+      return axis == A_MOUSE_X || axis == A_MOUSE_Y;
+    default:
+      return false;
+  }
+}
+
+ControllerType g_portType[PORTS];
 u8 g_held[PORTS][PORT_BUTTONS];
-u8 g_stick[PORTS][PORT_AXES] = {{128, 128, 128, 128}, {128, 128, 128, 128}};
+// each axis as the movie last said it, and the value it rests at
+constexpr s32 kAxisRest[PORT_AXES] = {128, 128, 128, 128, 128, 0, 0, 0, 32768, 32768, 0, 0};
+s32 g_axis[PORTS][PORT_AXES];
+bool g_axisSaid;
 
 // After the pads, the console's own controls: its Reset button, and the lid.
 constexpr int WIRE_CONSOLE = PORTS * PORT_BUTTONS;
@@ -171,15 +240,25 @@ bool SeedCard(int slot)
 
 ControllerType ParsePort(const char* key, ControllerType dflt)
 {
+  static const struct { const char* ours; ControllerType type; } kTypes[] = {
+    {"none", ControllerType::None},
+    {"digital", ControllerType::DigitalController},
+    {"dualshock", ControllerType::AnalogController},
+    {"analogJoystick", ControllerType::AnalogJoystick},
+    {"negcon", ControllerType::NeGcon},
+    {"negconRumble", ControllerType::NeGconRumble},
+    {"guncon", ControllerType::GunCon},
+    {"justifier", ControllerType::Justifier},
+    {"mouse", ControllerType::PlayStationMouse},
+  };
   char v[24] = "";
   if (wbx_setting_str(key, v, sizeof(v)) < 0)
     return dflt;
-  if (!strcmp(v, "none"))
-    return ControllerType::None;
-  if (!strcmp(v, "digital"))
-    return ControllerType::DigitalController;
-  if (!strcmp(v, "dualshock"))
-    return ControllerType::AnalogController;
+  for (const auto& t : kTypes)
+  {
+    if (!strcmp(v, t.ours))
+      return t.type;
+  }
   return dflt;
 }
 
@@ -192,9 +271,37 @@ void SetStickByte(Controller* c, u32 positive, u32 negative, u8 value)
 {
   const u32 pos = (value >= 128) ? (2u * value - 255u) : 0u;
   const u32 neg = (value >= 128) ? 0u : (2u * (127u - value));
-  const u32 first = 17u; // AnalogController::Button::Count
+  const u32 first = 17u; // AnalogController::Button::Count, and AnalogJoystick's
   c->SetBindState(first + negative, (static_cast<float>(neg) + 0.5f) / 255.0f);
   c->SetBindState(first + positive, (static_cast<float>(pos) + 0.5f) / 255.0f);
+}
+
+// A NeGcon's twist, as the byte it reports: 128 straight, 0 hard left, 255
+// hard right. Upstream takes the two directions as half axes and reports
+// round(128 * (right - left) + 128), so byte b is (b - 128) / 128 on one side
+// and nothing on the other - quotients a float holds exactly.
+void SetTwistByte(Controller* c, u8 value)
+{
+  const u32 first = 8u; // NeGcon::Button::Count; then SteeringLeft, SteeringRight, I, II, L
+  const float left = (value < 128) ? (static_cast<float>(128 - value) / 128.0f) : 0.0f;
+  const float right = (value > 128) ? (static_cast<float>(value - 128) / 128.0f) : 0.0f;
+  c->SetBindState(first + 0u, left);
+  c->SetBindState(first + 1u, right);
+}
+
+// A gun's aim. Upstream has no absolute axis for it: with no host pointer it
+// takes four half axes ("relative" binds) and makes of them a position from
+// 0 to 1 across the picture and down it (patches: "a gun is aimed at the
+// picture"). The movie's 0..65535 is that fraction.
+void SetGunAim(Controller* c, s32 x, s32 y)
+{
+  const float sx = (static_cast<float>(x) / 65535.0f) * 2.0f - 1.0f;
+  const float sy = (static_cast<float>(y) / 65535.0f) * 2.0f - 1.0f;
+  // Binding::RelativeLeft, Right, Up, Down - the same four for both guns
+  c->SetBindState(4u, (sx < 0.0f) ? -sx : 0.0f);
+  c->SetBindState(5u, (sx > 0.0f) ? sx : 0.0f);
+  c->SetBindState(6u, (sy < 0.0f) ? -sy : 0.0f);
+  c->SetBindState(7u, (sy > 0.0f) ? sy : 0.0f);
 }
 
 // ---- a file with no name ------------------------------------------------------
@@ -257,15 +364,68 @@ const char* NameTheBareFile()
 
 void MachineApplySettings(SettingsInterface& si)
 {
-  // What is in each port. A DualShock in the first and nothing in the second
-  // is what a fresh DuckStation has; a game its database says cannot use a
-  // DualShock is given the digital pad instead, by upstream, at boot.
-  g_portType[0] = ParsePort("port1", ControllerType::AnalogController);
-  g_portType[1] = ParsePort("port2", ControllerType::None);
+  // The widescreen hack: the geometry processor is told the screen is wider,
+  // and computes a wider view. The raster stays the console's; showing it at
+  // that shape is the frontend's. It changes what is drawn, and so how long
+  // the video chip is busy - the machine, not only the picture.
+  {
+    char v[8] = "off";
+    wbx_setting_str("widescreen", v, sizeof(v));
+    const bool wide = (strcmp(v, "16:9") == 0 || strcmp(v, "19:9") == 0 || strcmp(v, "20:9") == 0);
+    si.SetBoolValue("GPU", "WidescreenHack", wide);
+    if (wide)
+      si.SetStringValue("Display", "AspectRatio", v);
+  }
+
+  // A multitap turns one port into four sockets. Which ports have one is the
+  // console's shape, and so a setting.
+  bool tap[2] = {false, false};
+  {
+    char v[16] = "none";
+    wbx_setting_str("multitap", v, sizeof(v));
+    tap[0] = (strcmp(v, "port1") == 0 || strcmp(v, "both") == 0);
+    tap[1] = (strcmp(v, "port2") == 0 || strcmp(v, "both") == 0);
+    si.SetStringValue("ControllerPorts", "MultitapMode",
+                      Settings::GetMultitapModeName(tap[0] ? (tap[1] ? MultitapMode::BothPorts : MultitapMode::Port1Only) :
+                                                             (tap[1] ? MultitapMode::Port2Only : MultitapMode::Disabled)));
+  }
+
+  // What is in each socket. A DualShock in the first port and nothing in the
+  // second is what a fresh DuckStation has; a game its database says cannot
+  // use a DualShock is given the digital pad instead, by upstream, at boot. A
+  // socket of a multitap that is not there holds nothing, whatever is said.
+  static const char* const kPortSetting[PORTS] = {"port1",  "port2",  "port1b", "port1c",
+                                                  "port1d", "port2b", "port2c", "port2d"};
+  for (int port = 0; port < PORTS; port++)
+  {
+    g_portType[port] = ParsePort(kPortSetting[port], (port == 0) ? ControllerType::AnalogController : ControllerType::None);
+    if (port >= 2 && !tap[(port >= 5) ? 1 : 0])
+      g_portType[port] = ControllerType::None;
+  }
   for (int port = 0; port < PORTS; port++)
   {
     const std::string section = Controller::GetSettingsSection(static_cast<u32>(port));
     si.SetStringValue(section.c_str(), "Type", Controller::GetControllerInfo(g_portType[port])->name);
+    // A gun is aimed where the movie says: upstream then reads its "relative"
+    // half axes instead of a host pointer, which it does when a binding for
+    // one exists. The binding names nothing; the adapter sets the axes.
+    if (g_portType[port] == ControllerType::GunCon || g_portType[port] == ControllerType::Justifier)
+    {
+      si.SetStringValue(section.c_str(), "RelativeLeft", "Chimera/Aim");
+      si.SetFloatValue(section.c_str(), "XScale", 1.0f);
+    }
+    // A NeGcon's twist and its analog buttons are the bytes the movie says: no
+    // dead zone, no saturation short of the end, no curve.
+    for (const char* axis : {"Steering", "I", "II", "L"})
+    {
+      si.SetFloatValue(section.c_str(), (std::string(axis) + "Deadzone").c_str(), 0.0f);
+      si.SetFloatValue(section.c_str(), (std::string(axis) + "Saturation").c_str(), 1.0f);
+      si.SetFloatValue(section.c_str(), (std::string(axis) + "Linearity").c_str(), 0.0f);
+      si.SetFloatValue(section.c_str(), (std::string(axis) + "Scaling").c_str(), 1.0f);
+    }
+    // a count of the mouse is a count
+    si.SetFloatValue(section.c_str(), "SensitivityX", 1.0f);
+    si.SetFloatValue(section.c_str(), "SensitivityY", 1.0f);
     // A stick byte is the byte the movie says: no curve, no dead zone, and no
     // stick standing in for the d-pad - that last one is an emulator's
     // convenience, and a pad in digital mode does not report its sticks.
@@ -284,7 +444,6 @@ void MachineApplySettings(SettingsInterface& si)
   si.SetStringValue("MemoryCards", "Card2Type",
                     Settings::GetMemoryCardTypeName(g_cardPresent[1] ? MemoryCardType::NonPersistent :
                                                                        MemoryCardType::None));
-  si.SetStringValue("ControllerPorts", "MultitapMode", Settings::GetMultitapModeName(MultitapMode::Disabled));
 
 
   // Which market the console was made for. "auto" is upstream's own where
@@ -423,6 +582,17 @@ bool MachineBoot(Error* error)
       return false;
   }
 
+  // every axis where it rests: a stick centred, a gun at the middle of the
+  // picture, a mouse still
+  for (int port = 0; port < PORTS; port++)
+  {
+    std::memcpy(g_axis[port], kAxisRest, sizeof(kAxisRest));
+    Controller* const c = Pad::GetController(static_cast<u32>(port));
+    if (c && (c->GetType() == ControllerType::GunCon || c->GetType() == ControllerType::Justifier))
+      SetGunAim(c, kAxisRest[A_GUN_X], kAxisRest[A_GUN_Y]);
+  }
+  g_axisSaid = true;
+
   return true;
 }
 
@@ -431,6 +601,19 @@ bool MachineBoot(Error* error)
 // in the drive and on the cards.
 void MachineBeforeFrame()
 {
+  // A mouse's movement is so much per frame, and upstream adds what it is
+  // told to what the console has not yet asked for: told once a frame.
+  for (int port = 0; port < PORTS; port++)
+  {
+    Controller* const c = Pad::GetController(static_cast<u32>(port));
+    if (!c || c->GetType() != ControllerType::PlayStationMouse)
+      continue;
+    if (g_axis[port][A_MOUSE_X] != 0)
+      c->SetBindState(2u, static_cast<float>(g_axis[port][A_MOUSE_X])); // Binding::PointerX
+    if (g_axis[port][A_MOUSE_Y] != 0)
+      c->SetBindState(3u, static_cast<float>(g_axis[port][A_MOUSE_Y])); // Binding::PointerY
+  }
+
   DiscControls();
   if (g_console[0] && !g_consoleWas[0])
     System::ResetSystem();
@@ -465,21 +648,24 @@ static void SetButton(int32_t index, int32_t state)
   Controller* const c = Pad::GetController(static_cast<u32>(port));
   if (!c)
     return;
+  const int bind = BindOf(c->GetType(), wire);
+  if (bind < 0)
+    return;
 
   if (wire == WIRE_ANALOG)
   {
     // The Analog button is a toggle on the pad itself, and upstream toggles
     // every time it is TOLD the button is down: it is told once per press.
-    if (held && !was && c->GetType() == ControllerType::AnalogController)
-      c->SetBindState(kBind[wire], 1.0f);
+    if (held && !was)
+      c->SetBindState(static_cast<u32>(bind), 1.0f);
     return;
   }
 
-  c->SetBindState(kBind[wire], held ? 1.0f : 0.0f);
+  c->SetBindState(static_cast<u32>(bind), held ? 1.0f : 0.0f);
 }
 
 /* Which of the declared wires the machine can see: the frontend greys out the
- * rest. What a port holds is decided at boot (a setting, and upstream's game
+ * rest. What a socket holds is decided at boot (a setting, and upstream's game
  * database on top of it), so the controller that is there is asked. */
 static int IsButtonActive(int32_t index)
 {
@@ -495,20 +681,7 @@ static int IsButtonActive(int32_t index)
     return 0;
 
   const Controller* const c = Pad::GetController(static_cast<u32>(index / PORT_BUTTONS));
-  if (!c)
-    return 0;
-
-  const int wire = index % PORT_BUTTONS;
-  switch (c->GetType())
-  {
-    case ControllerType::AnalogController:
-      return 1;
-    case ControllerType::DigitalController:
-      // a digital pad has no stick to click and no Analog button
-      return (wire != 14 && wire != 15 && wire != WIRE_ANALOG) ? 1 : 0;
-    default:
-      return 0;
-  }
+  return (c && BindOf(c->GetType(), index % PORT_BUTTONS) >= 0) ? 1 : 0;
 }
 
 static int IsAxisActive(int32_t index)
@@ -517,7 +690,7 @@ static int IsAxisActive(int32_t index)
     return 0;
 
   const Controller* const c = Pad::GetController(static_cast<u32>(index / PORT_AXES));
-  return (c && c->GetType() == ControllerType::AnalogController) ? 1 : 0;
+  return (c && HasAxis(c->GetType(), index % PORT_AXES)) ? 1 : 0;
 }
 
 static void SetAxis(int32_t index, int32_t value)
@@ -525,32 +698,67 @@ static void SetAxis(int32_t index, int32_t value)
   if (index < 0 || index >= PORTS * PORT_AXES)
     return;
 
+  // every axis starts where it rests, not at zero
+  if (!g_axisSaid)
+  {
+    for (int p = 0; p < PORTS; p++)
+      std::memcpy(g_axis[p], kAxisRest, sizeof(kAxisRest));
+    g_axisSaid = true;
+  }
+
   const int port = index / PORT_AXES;
   const int axis = index % PORT_AXES;
-  const u8 byte = static_cast<u8>(std::clamp<int32_t>(value, 0, 255));
-  if (g_stick[port][axis] == byte)
-    return;
-  g_stick[port][axis] = byte;
-
   Controller* const c = Pad::GetController(static_cast<u32>(port));
-  if (!c || c->GetType() != ControllerType::AnalogController)
+  if (!c || !HasAxis(c->GetType(), axis))
     return;
 
-  // AnalogController::HalfAxis: LLeft LRight LDown LUp RLeft RRight RDown RUp.
-  // A stick byte grows to the right and downwards.
   switch (axis)
   {
-    case 0:
-      SetStickByte(c, 1, 0, byte);
+    case A_LX:
+    case A_LY:
+    case A_RX:
+    case A_RY:
+    {
+      const s32 byte = std::clamp<int32_t>(value, 0, 255);
+      if (g_axis[port][axis] == byte)
+        return;
+      g_axis[port][axis] = byte;
+      // HalfAxis: LLeft LRight LDown LUp RLeft RRight RDown RUp. A stick byte
+      // grows to the right and downwards.
+      static constexpr u8 kHalves[4][2] = {{1, 0}, {2, 3}, {5, 4}, {6, 7}};
+      SetStickByte(c, kHalves[axis][0], kHalves[axis][1], static_cast<u8>(byte));
       break;
-    case 1:
-      SetStickByte(c, 2, 3, byte);
+    }
+
+    case A_TWIST:
+    {
+      const s32 byte = std::clamp<int32_t>(value, 0, 255);
+      g_axis[port][axis] = byte;
+      SetTwistByte(c, static_cast<u8>(byte));
       break;
-    case 2:
-      SetStickByte(c, 5, 4, byte);
+    }
+
+    case A_I:
+    case A_II:
+    case A_L:
+    {
+      // an analog button, as the byte it reports: bind 10, 11, 12 (after the
+      // eight buttons and the two halves of the twist)
+      const s32 byte = std::clamp<int32_t>(value, 0, 255);
+      g_axis[port][axis] = byte;
+      c->SetBindState(10u + static_cast<u32>(axis - A_I), static_cast<float>(byte) / 255.0f);
       break;
+    }
+
+    case A_GUN_X:
+    case A_GUN_Y:
+      g_axis[port][axis] = std::clamp<int32_t>(value, 0, 65535);
+      SetGunAim(c, g_axis[port][A_GUN_X], g_axis[port][A_GUN_Y]);
+      break;
+
     default:
-      SetStickByte(c, 6, 7, byte);
+      // the mouse: so much this frame, given to the pad once (MachineBeforeFrame)
+      g_axis[port][axis] = std::clamp<int32_t>(value, -127, 127);
       break;
   }
 }

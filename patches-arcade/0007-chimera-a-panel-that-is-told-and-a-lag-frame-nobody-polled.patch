@@ -1,8 +1,8 @@
 diff --git a/src/core/arcade/arcade_input.cpp b/src/core/arcade/arcade_input.cpp
-index 43a72ad..0ebbbb7 100644
+index 43a72ad..e3a8e9d 100644
 --- a/src/core/arcade/arcade_input.cpp
 +++ b/src/core/arcade/arcade_input.cpp
-@@ -656,8 +656,73 @@ void RegisterBindings(SettingsInterface& si, SettingsInterface& operator_si)
+@@ -656,8 +656,100 @@ void RegisterBindings(SettingsInterface& si, SettingsInterface& operator_si)
    }
  }
  
@@ -65,6 +65,33 @@ index 43a72ad..0ebbbb7 100644
 +    Konami::SetGVLightgunPosition(port_index, port.lightgun_x, port.lightgun_y);
 +  ApplyPort(port_index);
 +}
++
++void ChimeraSetDriving(u32 port_index, float steering, float accelerator, float brake, float clutch)
++{
++  std::lock_guard<std::mutex> lock(s_mutex);
++  if (port_index >= s_ports.size())
++    return;
++  PortState& port = s_ports[port_index];
++  if (port.type != Arcade::ArcadeControllerType::Driving)
++    return;
++
++  port.steering = std::clamp(steering, 0.0f, 1.0f);
++  port.accelerator = std::clamp(accelerator, 0.0f, 1.0f);
++  port.brake = std::clamp(brake, 0.0f, 1.0f);
++  port.clutch = std::clamp(clutch, 0.0f, 1.0f);
++}
++
++void ChimeraAddTrackball(u32 port_index, s32 dx, s32 dy)
++{
++  std::lock_guard<std::mutex> lock(s_mutex);
++  if (port_index >= 2 || s_ports[port_index].type != Arcade::ArcadeControllerType::Trackball)
++    return;
++
++  if (NamcoSystem11::IsFamilyBowlActive())
++    NamcoSystem11::AddFamilyBowlTrackballDelta(port_index, dx, dy);
++  else
++    Konami::AddGVTrackballDelta(port_index, dx, dy);
++}
 +#endif
 +
  bool IsDigitalPressed(u32 port, std::string_view key)
@@ -76,7 +103,7 @@ index 43a72ad..0ebbbb7 100644
    std::lock_guard<std::mutex> lock(s_mutex);
    if (port >= s_ports.size())
      return false;
-@@ -668,6 +733,9 @@ bool IsDigitalPressed(u32 port, std::string_view key)
+@@ -668,6 +760,9 @@ bool IsDigitalPressed(u32 port, std::string_view key)
  
  float GetAnalogValue(u32 port, std::string_view key)
  {
@@ -87,10 +114,10 @@ index 43a72ad..0ebbbb7 100644
    if (port >= s_ports.size())
      return 0.0f;
 diff --git a/src/core/arcade/arcade_input.h b/src/core/arcade/arcade_input.h
-index 6074755..2baa493 100644
+index 6074755..27c1003 100644
 --- a/src/core/arcade/arcade_input.h
 +++ b/src/core/arcade/arcade_input.h
-@@ -42,4 +42,14 @@ void SetLightgunViewport(float left, float top, float right, float bottom, float
+@@ -42,4 +42,19 @@ void SetLightgunViewport(float left, float top, float right, float bottom, float
  void ResyncWindowedPointer(float x, float y);
  void Update();
  
@@ -102,6 +129,11 @@ index 6074755..2baa493 100644
 +void ChimeraSetOperator(std::string_view key, bool pressed);
 +// a light gun's aim, 0..1 across the picture and down it; outside, off-screen
 +void ChimeraSetGun(u32 port, float x, float y, bool offscreen);
++// a driving cabinet's wheel and pedals, 0..1: the wheel 0.5 straight, a pedal
++// 0 released. No dead zone and no curve: the number is the movie's.
++void ChimeraSetDriving(u32 port, float steering, float accelerator, float brake, float clutch);
++// how far a trackball rolled this frame, in the board's own counts
++void ChimeraAddTrackball(u32 port, s32 dx, s32 dy);
 +#endif
 +
  } // namespace ArcadeInput

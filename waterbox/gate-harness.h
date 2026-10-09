@@ -20,31 +20,45 @@
 #include <string.h>
 #include <time.h>
 
-/* The wire this core declares: one block of seventeen per controller port,
- * the DualShock's own -
+/* The wire the console declares: eight sockets (port 1, port 2, then a
+ * multitap's 1B 1C 1D and 2B 2C 2D), one block of twenty-five per socket -
  *
  *   0 Up  1 Down  2 Left  3 Right  4 Start  5 Select
  *   6 Square  7 Cross  8 Circle  9 Triangle
  *   10 L1  11 R1  12 L2  13 R2  14 L3  15 R3  16 Analog
+ *   17 A  18 B  19 R  20 Trigger  21 Shoot Offscreen  22 Back
+ *   23 Mouse Left  24 Mouse Right
  *
- * and per port four axes (LX LY RX RY), each the byte the pad reports: 0..255,
- * 128 at rest. After the two ports, the console's own four:
+ * and per socket twelve axes: the sticks LX LY RX RY (0..255, 128 at rest),
+ * a NeGcon's Twist (128 at rest) and I II L (0 at rest), a gun's aim X Y
+ * (0..65535), and the mouse's movement X Y this frame. After the eight
+ * sockets, the console's own four:
  *
- *   34 Reset  35 Previous Disc  36 Next Disc  37 Disc Swap
+ *   200 Reset  201 Previous Disc  202 Next Disc  203 Disc Swap
  *
  * The macro names are inherited from the PlayStation 2 core's harness, which
  * this one was made from; a "slot" is a port here. */
-#define GATE_DS2_BTNS 17
-#define GATE_PORT_BTNS 17
-#define GATE_PORTS 2
-#define GATE_SLOTS 2
+#define GATE_DS2_BTNS 25
+#define GATE_PORT_BTNS 25
+#define GATE_PORT_AXES 12
+#define GATE_PORTS 8
+#define GATE_SLOTS 8
 #define GATE_CONSOLE_BTNS 4
 #define GATE_CONSOLE_WIRE (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS) + GATE_CONSOLE_BTNS)
-/* The arcade boards' panel is its own wire and a longer one: four players of
- * fourteen controls, then Service and Test (waterbox/machine-arcade.inc). The
- * harness drives whichever machine the work folder's settings ask for, so its
- * arrays are as long as the longer; a machine ignores what is past its end. */
-#define GATE_ARCADE_WIRE (14 * 4 + 2)
+/* The arcade boards' panel is its own wire: four players of thirty controls,
+ * then Service and Test (waterbox/machine-arcade.inc) -
+ *
+ *   0 Up  1 Down  2 Left  3 Right  4 Start  5 Coin  6..11 Button 1..6
+ *   12 Trigger  13 Reload  14 Gear Up  15 Gear Down  16 Handbrake  17 View
+ *   18 Horn  19 Music Next  20 Music Previous  21 Select  22..25 Select Up,
+ *   Down, Left, Right  26 Enter  27 Sensor  28 GSR Increase  29 GSR Decrease
+ *   120 Service  121 Test
+ *
+ * and per player eight axes: Gun X Y, Steering, Accelerator, Brake, Clutch,
+ * Trackball X Y. The harness drives whichever machine the work folder's
+ * settings ask for, so its arrays are as long as the longer wire; a machine
+ * ignores what is past its end. */
+#define GATE_ARCADE_WIRE (30 * 4 + 2)
 #define GATE_BTN_COUNT (GATE_ARCADE_WIRE > GATE_CONSOLE_WIRE ? GATE_ARCADE_WIRE : GATE_CONSOLE_WIRE)
 #define GATE_SLOT_BASE(slot) \
 	((slot) < GATE_PORTS ? (slot) * GATE_PORT_BTNS \
@@ -115,6 +129,11 @@ struct gate_opts
 	 * the answer is what the machine did about it. */
 	struct { int index; int value; } hold[GATE_MAX_PRESSES];
 	int holds;
+	/* An axis moved for a while: --axis <frame>:<count>:<index>:<value>:<rest>.
+	 * For <count> frames from <frame> the axis is <value>, and <rest> on every
+	 * other frame - a twist, a pedal, a mouse dragged, a gun swung across. */
+	struct { long first, count; int index; int value, rest; } move[GATE_MAX_PRESSES];
+	int moves;
 	/* --stall <frame>:<ms>: make the HOST wait before one frame. A machine on
 	 * its own clock cannot tell; one that reads the wall can (the clock leg). */
 	long stallFrame, stallMs;
@@ -371,15 +390,29 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 
 		for (int hi = 0; hi < o->holds && c->set_axis; hi++)
 			c->set_axis(o->hold[hi].index, o->hold[hi].value);
+		/* a moved axis: its rest first, then whichever window this frame is
+		 * in (several --axis may name one axis; the last one inside wins) */
+		for (int mi = 0; mi < o->moves && c->set_axis; mi++)
+		{
+			int value = o->move[mi].rest, later = 0;
+			for (int mj = 0; mj < o->moves; mj++)
+			{
+				if (o->move[mj].index != o->move[mi].index) continue;
+				if (mj < mi) later = 1;
+				if (f >= o->move[mj].first && f < o->move[mj].first + o->move[mj].count)
+					value = o->move[mj].value;
+			}
+			if (!later) c->set_axis(o->move[mi].index, value);
+		}
 
 		if (o->wiggleAxes && c->set_axis)
 		{
-			/* a deterministic wander of both sticks of both pads: bytes
-			 * anywhere in the pad's range, the same in both drivers */
+			/* a deterministic wander of both sticks of both ports' pads:
+			 * bytes anywhere in the pad's range, the same in both drivers */
 			uint64_t w = (uint64_t)f * 2862933555777941757ULL + 3037000493ULL;
 			w ^= w >> 29;
 			for (int k = 0; k < 8; k++)
-				c->set_axis(k, (int32_t)((w >> (k * 8)) & 0xFF));
+				c->set_axis((k / 4) * GATE_PORT_AXES + (k % 4), (int32_t)((w >> (k * 8)) & 0xFF));
 		}
 
 		/* turbo: draw nothing for the first half of the run, then draw the
@@ -534,6 +567,7 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 	o->exercisePad = 0;
 	o->wiggleAxes = 0;
 	o->presses = 0;
+	o->moves = 0;
 	o->holds = 0;
 	o->turbo = 0;
 	o->turboSettle = 0;
@@ -577,6 +611,19 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 			o->hold[o->holds].index = index;
 			o->hold[o->holds].value = value;
 			o->holds++;
+		}
+		else if (!strcmp(argv[i], "--axis") && i + 1 < argc)
+		{
+			if (o->moves >= GATE_MAX_PRESSES) { fprintf(stderr, "too many --axis\n"); return 0; }
+			long first = 0, count = 0; int index = -1, value = 0, rest = 0;
+			if (sscanf(argv[++i], "%ld:%ld:%d:%d:%d", &first, &count, &index, &value, &rest) != 5)
+			{
+				fprintf(stderr, "--axis wants <frame>:<count>:<axis index>:<value>:<rest>\n");
+				return 0;
+			}
+			o->move[o->moves].first = first; o->move[o->moves].count = count;
+			o->move[o->moves].index = index; o->move[o->moves].value = value; o->move[o->moves].rest = rest;
+			o->moves++;
 		}
 		else if (!strcmp(argv[i], "--stall") && i + 1 < argc)
 		{

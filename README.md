@@ -11,8 +11,9 @@ commit, pinned at `extern/arcadeduck` and compiled whole beside it: one
 `core.wbx`, two emulators, and a project's Machine setting picks.
 
 **The PlayStation** runs its games in the sandbox identically to its native
-build: two ports of digital pad or DualShock, up to eight discs with a lid,
-memory cards, savestates and rewind. The picture comes from the software
+build: any of the console's controllers in its two ports or, with multitaps,
+eight sockets; up to eight discs with a lid, memory cards, savestates and
+rewind. The picture comes from the software
 renderer, or from the hardware renderer at up to 8x with true colour, texture
 filtering, downsampling, PGXP and crop - drawn by an OpenGL compiled into the
 core, or (`opengl-hw`) on the computer's own graphics card through Chimera's
@@ -25,10 +26,10 @@ the same renderers. ArcadeDuck also knows Sony's ZN-1 and ZN-2 and the boards
 built on them, and Konami's GV; they are compiled in and not offered until a
 complete set has been booted on each.
 
-Not there yet: the console's other controllers (mouse, light guns, NeGcon)
-and the multitap, the widescreen hack, and an arcade cabinet's wheel,
-trackball or more than two players. `docs/PLAN.md` has the milestones, what
-was measured and what was not tried.
+The widescreen hack is a setting. An arcade panel is the cabinet's: up to
+four players, guns, a wheel and pedals, a trackball. Not proved on a game,
+for want of one: where a light gun's shot lands, a wheel, a trackball.
+`docs/PLAN.md` has the milestones, what was measured and what was not tried.
 
 ## Building
 

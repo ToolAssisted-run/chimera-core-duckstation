@@ -134,12 +134,12 @@ same build.
 ### Patches
 
 Both emulators are pinned to pristine upstream. `waterbox/apply-patches.sh`
-applies the 11 numbered patch files in `patches/` to `extern/duckstation`
+applies the 12 numbered patch files in `patches/` to `extern/duckstation`
 and the 13 in `patches-arcade/` to `extern/arcadeduck`, each in file-name
 order. There is no separate step: `meson.build` runs the script at configure
 time, so both `meson setup build/meson-native` and `setup-guest.sh` apply
 them. The script applies a whole series or none of it; run by hand on patched
-trees it prints `already applied: extern/duckstation, all 11 patches` and the
+trees it prints `already applied: extern/duckstation, all 12 patches` and the
 same for the other. `git status` then shows both submodules as modified,
 which is expected.
 
@@ -249,11 +249,11 @@ SKIP is not a pass. What runs depends on what content the machine has:
 | With | Named by | Checks |
 | --- | --- | --- |
 | nothing | - | `build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry` |
-| a BIOS | `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS` | `bios:compare`, `bios:rerecord`, `bios:rewind`, `bios:deterministic`, `clock:virtual`, `input:reaches`, `lag:counted`, `console:reset`, `cards:export`, `cards:import`, `cards:refused`, and with a guest Mesa `gl:softpipe`, `gl:machine`, `gl:scale`, `gl:rerecord`, `gl:rewind` |
+| a BIOS | `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS` | `bios:compare`, `bios:rerecord`, `bios:rewind`, `bios:deterministic`, `clock:virtual`, `input:reaches`, `lag:counted`, `console:reset`, `mouse:menu`, `guns:wire`, `cards:export`, `cards:import`, `cards:refused`, and with a guest Mesa `gl:softpipe`, `gl:machine`, `gl:scale`, `gl:rerecord`, `gl:rewind` |
 | a second BIOS, European | `tests/roms/bios/PSX_4.1(E).bin`, or `CHIMERA_PS1_BIOS_PAL` | `region:rom` |
-| a disc | `tests/roms/NHL Blades of Steel 2000 (USA).cue` and its image, or `CHIMERA_PS1_DISC` | `cue:alone`, `disc:compare`, `disc:rerecord`, `disc:rewind`, `disc:nameless` |
-| Chimera | `$CHIMERA_ROOT` with `build/meson-linux/chimera-run` and the package installed | `engine:project` |
-| a 3D game | `tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue` and its image, or `CHIMERA_PS1_GAME3D` | `play:compare`, `play:rewind`; with both discs, `disc:swap` |
+| a disc | `tests/roms/NHL Blades of Steel 2000 (USA).cue` and its image, or `CHIMERA_PS1_DISC` | `cue:alone`, `disc:compare`, `disc:rerecord`, `disc:rewind`, `disc:nameless`, `multitap:pads` |
+| Chimera | `$CHIMERA_ROOT` with `build/meson-linux/chimera-run` and the package installed | `engine:project`, and with the disc `ports:columns` |
+| a 3D game | `tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue` and its image, or `CHIMERA_PS1_GAME3D` | `play:compare`, `play:rewind`, `negcon:race`, `widescreen:machine`; with both discs, `disc:swap` |
 | a GL context | `build/meson-gl/run-wbx` (`-Dgl_bridge=true`) | `gpu:bridge`, `gpu:machine`, `gpu:picture-after-load`, `gpu:rerecord`, `gpu:play`, `gpu:enhancements` |
 
 The arcade boards' checks need no PlayStation BIOS and run whether or not
@@ -262,8 +262,8 @@ there is one (`./waterbox/run-gate.sh -a` runs them alone):
 | With | Named by | Checks |
 | --- | --- | --- |
 | nothing | - | `arcadedb:entry`, `arcade:noset` |
-| a Namco System 11 set | `tests/roms/arcade/sets/tekkenac.zip` (Tekken, Asia, TE4/VER.C) or `CHIMERA_ARCADE_NS11_SET`, and `tests/roms/arcade/namcoc76.zip` or `CHIMERA_ARCADE_NS11_BIOS` | `ns11:compare`, `ns11:rerecord`, `ns11:rewind`, `ns11:memory`, `ns11:refused`, `ns11:crop`; with Chimera `ns11:engine`; with a guest Mesa `ns11:gl`; with a GL context `ns11:gpu` |
-| a Konami GQ set | `tests/roms/arcade/sets/cryptklr.zip` (Crypt Killer) or `CHIMERA_ARCADE_GQ_SET`, and its hard disk `tests/roms/arcade/420uaa04.chd` or `CHIMERA_ARCADE_GQ_DISK` | `gq:compare`, `gq:rewind` |
+| a Namco System 11 set | `tests/roms/arcade/sets/tekkenac.zip` (Tekken, Asia, TE4/VER.C) or `CHIMERA_ARCADE_NS11_SET`, and `tests/roms/arcade/namcoc76.zip` or `CHIMERA_ARCADE_NS11_BIOS` | `ns11:compare`, `ns11:rerecord`, `ns11:rewind`, `ns11:memory`, `ns11:refused`, `ns11:crop`, `panel:wheel`; with Chimera `ns11:engine`; with a guest Mesa `ns11:gl`; with a GL context `ns11:gpu` |
+| a Konami GQ set | `tests/roms/arcade/sets/cryptklr.zip` (Crypt Killer) or `CHIMERA_ARCADE_GQ_SET`, and its hard disk `tests/roms/arcade/420uaa04.chd` or `CHIMERA_ARCADE_GQ_DISK` | `gq:compare`, `gq:rewind`, `gq:three` |
 
 The press scripts are written for those two sets. A set must be complete
 (non-merged) and under the names ArcadeDuck's record has, which are a current
@@ -271,7 +271,7 @@ MAME release's; `waterbox/tests/make-arcade-set.py` rebuilds one from
 archives that hold the same roms under older names, by CRC, and invents
 nothing.
 
-All 49 take about eleven minutes on a 20-thread desktop. The GPU checks draw
+All 57 take about a quarter of an hour on a 20-thread desktop. The GPU checks draw
 on whatever this machine's EGL hands out and name it; on a machine with no
 card that is llvmpipe, and what they prove is the bridge, not a card.
 `docs/PLAN.md` ("The gate") has what each check compares and how each was

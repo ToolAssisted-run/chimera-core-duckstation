@@ -18,15 +18,27 @@ namespace {
 // ---- the wire ----------------------------------------------------------------
 
 // The arcade machines' own wire (waterbox.config, "machines"), in its order:
-// per player a stick, Start, a coin slot, six buttons and a gun's trigger and
-// reload; then the two switches inside the cabinet door.
+// per player every control ArcadeDuck's boards read - a stick, Start, a coin
+// slot, six buttons, a gun's trigger and reload, a driving cabinet's shift,
+// handbrake, view, horn and music buttons, and the select and sensor buttons
+// of Konami's stranger cabinets - then the two switches inside the cabinet
+// door. The names on the right are ArcadeDuck's own for them.
 constexpr int PORTS = 4;
-constexpr int PORT_BUTTONS = 14;
-constexpr int PORT_AXES = 2;
+constexpr int PORT_BUTTONS = 30;
+constexpr int PORT_AXES = 8;
 constexpr const char* kControl[PORT_BUTTONS] = {
-  "Up", "Down", "Left", "Right", "Start", "Coin", "Button1", "Button2",
-  "Button3", "Button4", "Button5", "Button6", "Trigger", "Reload",
+  "Up",       "Down",     "Left",       "Right",       "Start",      "Coin",          "Button1",  "Button2",
+  "Button3",  "Button4",  "Button5",    "Button6",     "Trigger",    "Reload",        "GearUp",   "GearDown",
+  "Handbrake", "View",    "Horn",       "MusicNext",   "MusicPrevious", "Select",     "SelectUp", "SelectDown",
+  "SelectLeft", "SelectRight", "Enter", "Sensor",      "GSRIncrease", "GSRDecrease",
 };
+enum : int
+{
+  A_GUN_X, A_GUN_Y,                           // 0..65535 across the picture and down it
+  A_STEERING, A_ACCELERATOR, A_BRAKE, A_CLUTCH, // 0..65535; the wheel 32768 straight, a pedal 0 released
+  A_BALL_X, A_BALL_Y,                         // how far a trackball rolled this frame
+};
+constexpr s32 kAxisRest[PORT_AXES] = {32768, 32768, 32768, 0, 0, 0, 0, 0};
 constexpr int WIRE_OPERATOR = PORTS * PORT_BUTTONS;
 constexpr int WIRE_SERVICE = WIRE_OPERATOR + 0;
 constexpr int WIRE_TEST = WIRE_OPERATOR + 1;
@@ -35,8 +47,9 @@ constexpr int WIRE_COUNT = WIRE_OPERATOR + 2;
 // which of the wire this game's panel has (decided at boot, from ArcadeDuck's
 // own record of the cabinet)
 bool g_live[WIRE_COUNT];
-bool g_gun[PORTS];
-u16 g_gunAt[PORTS][PORT_AXES];
+Arcade::ArcadeControllerType g_panel[PORTS]; // what each player's part of the panel is
+s32 g_axis[PORTS][PORT_AXES];                // each axis as the movie last said it
+bool g_panelProbe;
 
 const Arcade::Database::GameDefinition* g_game;
 char g_set[512];
@@ -63,9 +76,26 @@ void DescribePanel(SettingsInterface& si)
   g_live[WIRE_SERVICE] = true;
   g_live[WIRE_TEST] = true;
 
+  // "arcade_panel_probe" is a question put to the core, as "arcadedb_probe"
+  // is: not in waterbox.config, never in a movie. It makes player 1's part of
+  // the panel a driving cabinet's or a trackball, whatever the game has, and
+  // says on stderr what ArcadeDuck's input code then holds - which is how a
+  // wheel and pedals are checked on a machine with no driving game to run.
+  char probe[16] = "";
+  wbx_setting_str("arcade_panel_probe", probe, sizeof(probe));
+  g_panelProbe = (probe[0] != '\0');
+
   for (int port = 0; port < PORTS; port++)
   {
-    const Arcade::Database::PortDefinition& def = g_game->ports[port];
+    Arcade::Database::PortDefinition def = g_game->ports[port];
+    if (port == 0 && g_panelProbe)
+    {
+      def.controller_type = (strcmp(probe, "trackball") == 0) ? Arcade::ArcadeControllerType::Trackball :
+                                                                 Arcade::ArcadeControllerType::Driving;
+      def.layout.clear();
+    }
+    g_panel[port] = Arcade::ArcadeControllerType::None;
+    std::memcpy(g_axis[port], kAxisRest, sizeof(kAxisRest));
     const std::string section = "ArcadeControllerPort" + std::to_string(port + 1);
     const Arcade::ArcadeControllerTypeInfo* const info = Arcade::GetArcadeControllerTypeInfo(def.controller_type);
     if (def.controller_type == Arcade::ArcadeControllerType::None || !info)
@@ -73,6 +103,7 @@ void DescribePanel(SettingsInterface& si)
       si.SetStringValue(section.c_str(), "Type", "none");
       continue;
     }
+    g_panel[port] = def.controller_type;
 
     si.SetStringValue(section.c_str(), "Type", std::string(info->name).c_str());
     si.SetStringValue(section.c_str(), "Layout", def.layout.c_str());
@@ -81,7 +112,6 @@ void DescribePanel(SettingsInterface& si)
     si.SetStringValue(section.c_str(), "InputMode", "BoundAxis");
     si.SetBoolValue(section.c_str(), "OffscreenReload", true);
     si.SetBoolValue(section.c_str(), "CrosshairEnabled", false);
-    g_gun[port] = (def.controller_type == Arcade::ArcadeControllerType::Lightgun);
 
     // The layout names the controls this cabinet has. One with no layout on
     // record has the whole port.
@@ -252,6 +282,15 @@ bool MachineBoot(Error* error)
 
 void MachineBeforeFrame()
 {
+  // A trackball's roll is so much per frame: given to the board once a frame.
+  for (int port = 0; port < PORTS; port++)
+  {
+    if (g_panel[port] == Arcade::ArcadeControllerType::Trackball &&
+        (g_axis[port][A_BALL_X] != 0 || g_axis[port][A_BALL_Y] != 0))
+    {
+      ArcadeInput::ChimeraAddTrackball(static_cast<u32>(port), g_axis[port][A_BALL_X], g_axis[port][A_BALL_Y]);
+    }
+  }
 }
 
 void MachineAfterFrame()
@@ -281,22 +320,67 @@ static int IsButtonActive(int32_t index)
   return (index >= 0 && index < WIRE_COUNT && g_live[index]) ? 1 : 0;
 }
 
-static int IsAxisActive(int32_t index)
+static bool HasAxis(int port, int axis)
 {
-  return (index >= 0 && index < PORTS * PORT_AXES && g_gun[index / PORT_AXES]) ? 1 : 0;
+  switch (g_panel[port])
+  {
+    case Arcade::ArcadeControllerType::Lightgun:
+      return axis == A_GUN_X || axis == A_GUN_Y;
+    case Arcade::ArcadeControllerType::Driving:
+      return axis >= A_STEERING && axis <= A_CLUTCH;
+    case Arcade::ArcadeControllerType::Trackball:
+      return axis == A_BALL_X || axis == A_BALL_Y;
+    default:
+      return false;
+  }
 }
 
-/* A gun's aim: 0..65535 across the picture and down it. */
+static int IsAxisActive(int32_t index)
+{
+  return (index >= 0 && index < PORTS * PORT_AXES && HasAxis(index / PORT_AXES, index % PORT_AXES)) ? 1 : 0;
+}
+
+/* A gun's aim: 0..65535 across the picture and down it. A wheel: 0 hard left,
+ * 65535 hard right; a pedal: 0 released, 65535 to the floor. A trackball: how
+ * far it rolled this frame. */
 static void SetAxis(int32_t index, int32_t value)
 {
   if (index < 0 || index >= PORTS * PORT_AXES)
     return;
   const int port = index / PORT_AXES;
-  if (!g_gun[port])
+  const int axis = index % PORT_AXES;
+  if (!HasAxis(port, axis))
     return;
-  g_gunAt[port][index % PORT_AXES] = static_cast<u16>(std::clamp<int32_t>(value, 0, 65535));
-  ArcadeInput::ChimeraSetGun(static_cast<u32>(port), static_cast<float>(g_gunAt[port][0]) / 65535.0f,
-                             static_cast<float>(g_gunAt[port][1]) / 65535.0f, false);
+
+  if (axis == A_BALL_X || axis == A_BALL_Y)
+  {
+    g_axis[port][axis] = std::clamp<int32_t>(value, -127, 127);
+    return;
+  }
+
+  const s32 was = g_axis[port][axis];
+  g_axis[port][axis] = std::clamp<int32_t>(value, 0, 65535);
+  if (axis == A_GUN_X || axis == A_GUN_Y)
+  {
+    ArcadeInput::ChimeraSetGun(static_cast<u32>(port), static_cast<float>(g_axis[port][A_GUN_X]) / 65535.0f,
+                               static_cast<float>(g_axis[port][A_GUN_Y]) / 65535.0f, false);
+    return;
+  }
+
+  ArcadeInput::ChimeraSetDriving(static_cast<u32>(port), static_cast<float>(g_axis[port][A_STEERING]) / 65535.0f,
+                                 static_cast<float>(g_axis[port][A_ACCELERATOR]) / 65535.0f,
+                                 static_cast<float>(g_axis[port][A_BRAKE]) / 65535.0f,
+                                 static_cast<float>(g_axis[port][A_CLUTCH]) / 65535.0f);
+  if (g_panelProbe && was != g_axis[port][axis])
+  {
+    // what ArcadeDuck's own readers are given, in sixty-five-thousandths
+    const u32 p = static_cast<u32>(port);
+    std::fprintf(stderr, "duckstation: panel probe: P%d steering %d accelerator %d brake %d clutch %d\n", port + 1,
+                 static_cast<int>(ArcadeInput::GetAnalogValue(p, "Steering") * 65535.0f + 0.5f),
+                 static_cast<int>(ArcadeInput::GetAnalogValue(p, "Accelerator") * 65535.0f + 0.5f),
+                 static_cast<int>(ArcadeInput::GetAnalogValue(p, "Brake") * 65535.0f + 0.5f),
+                 static_cast<int>(ArcadeInput::GetAnalogValue(p, "Clutch") * 65535.0f + 0.5f));
+  }
 }
 
 // ---- save data: what the board keeps ------------------------------------------------

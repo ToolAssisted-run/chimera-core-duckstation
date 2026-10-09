@@ -180,13 +180,16 @@ bool ImGuiManager::Initialize(float global_scale, bool show_osd_messages, Error*
 void ImGuiManager::Shutdown()
 {
 }
+// The window a pointer is aimed in is the unit square: a light gun's aim
+// arrives as a fraction of the picture, and upstream multiplies it by these
+// (patches: "a gun is aimed at the picture").
 float ImGuiManager::GetWindowWidth()
 {
-  return 640.0f;
+  return 1.0f;
 }
 float ImGuiManager::GetWindowHeight()
 {
-  return 480.0f;
+  return 1.0f;
 }
 void ImGuiManager::WindowResized(float width, float height)
 {

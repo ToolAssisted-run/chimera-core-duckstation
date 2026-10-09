@@ -141,7 +141,7 @@ def main():
     # and no other - so key and row are both made from the same list, and the
     # list is the core's rule (waterbox/cinterface.cpp), restated: Reset
     # always, the lid with a disc, the selector with several; nothing for an
-    # empty port, no sticks or stick buttons for a digital pad.
+    # empty socket, and for each controller the controls that controller has.
     discs = sum(1 for f in files if f["slot"] == "disc")
 
     def player_of(name):
@@ -159,12 +159,29 @@ def main():
             if name == "Disc Swap":
                 return discs > 0
             return discs > 1
-        kind = settings.get("port%d" % port, "none")
-        if kind == "none":
+        # the socket: P1 and P2 are the ports, P3..P5 a multitap's 1B 1C 1D,
+        # P6..P8 the other's 2B 2C 2D - and those are there only with the tap
+        key = ("port1", "port2", "port1b", "port1c", "port1d", "port2b", "port2c", "port2d")[port - 1]
+        tap = settings.get("multitap", "none")
+        if 3 <= port <= 5 and tap not in ("port1", "both"):
             return False
-        if kind == "digital":
-            return "Stick" not in name and name.split(" ", 1)[1] not in ("L3", "R3", "Analog")
-        return True
+        if port >= 6 and tap not in ("port2", "both"):
+            return False
+        kind = settings.get(key, "none")
+        control = name.split(" ", 1)[1]
+        pad = ("Up", "Down", "Left", "Right", "Start", "Select", "Square", "Cross", "Circle", "Triangle",
+               "L1", "R1", "L2", "R2")
+        has = {
+            "digital": pad,
+            "dualshock": pad + ("L3", "R3", "Analog", "Left Stick X", "Left Stick Y", "Right Stick X", "Right Stick Y"),
+            "negcon": ("Up", "Down", "Left", "Right", "Start", "A", "B", "R", "Twist", "I", "II", "L"),
+            "guncon": ("Trigger", "A", "B", "Shoot Offscreen", "Gun X", "Gun Y"),
+            "justifier": ("Trigger", "Start", "Back", "Shoot Offscreen", "Gun X", "Gun Y"),
+            "mouse": ("Mouse Left", "Mouse Right", "Mouse X", "Mouse Y"),
+        }
+        has["analogJoystick"] = has["dualshock"]
+        has["negconRumble"] = has["negcon"]
+        return control in has.get(kind, ())
 
     # what a held button writes in its column: the package's own character
     mnemonics = inputs.get("mnemonics", {})
@@ -175,7 +192,7 @@ def main():
     groups = max([player_of(a["name"]) for a in axes] + [player_of(b) for b in buttons] + [0]) + 1
 
     def row_of(held):
-        row, key = "", ""
+        parts = []
         for g in range(groups):
             cells, names = "", ""
             for a in axes:
@@ -186,11 +203,15 @@ def main():
                 if player_of(b) == g and live(b):
                     cells += mnemonic(b) if b in held else "."
                     names += b + "|"
-            if g > 0 and not names:
-                continue  # a port with nothing in it has no group
-            row += "|" + cells
-            key += "#" + names
-        return row + "|", key
+            parts.append((cells, names))
+        # A socket with nothing in it has no group - once nothing live comes
+        # after it. One with a live socket AFTER it keeps its place, empty: a
+        # multitap with a pad in 1B and nothing in port 2 is "...|P1||P3|".
+        while len(parts) > 1 and not parts[-1][1]:
+            parts.pop()
+        row = "".join("|" + cells for cells, _ in parts) + "|"
+        key = "".join("#" + names for _, names in parts)
+        return row, key
 
     row, key = row_of(())
     for first, count, name in presses:

@@ -225,7 +225,7 @@ arcade_tier() {
 	[ -n "$ns11" ] || { [ -f "$adir/sets/tekkenac.zip" ] && ns11="$adir/sets/tekkenac.zip"; }
 	[ -n "$ns11bios" ] || { [ -f "$adir/namcoc76.zip" ] && ns11bios="$adir/namcoc76.zip"; }
 	if [ -z "$ns11" ] || [ -z "$ns11bios" ]; then
-		for leg in ns11:compare ns11:rerecord ns11:rewind ns11:memory ns11:refused ns11:crop ns11:engine ns11:gl ns11:gpu; do
+		for leg in ns11:compare ns11:rerecord ns11:rewind ns11:memory ns11:refused ns11:crop panel:wheel ns11:engine ns11:gl ns11:gpu; do
 			report "$leg" SKIP "needs tests/roms/arcade/sets/tekkenac.zip (CHIMERA_ARCADE_NS11_SET) and tests/roms/arcade/namcoc76.zip (CHIMERA_ARCADE_NS11_BIOS)"
 		done
 	else
@@ -327,6 +327,28 @@ arcade_tier() {
 			report "ns11:crop" FAIL "default [$size_crop], want 512x228; crop none [$size_full], want 512x240; machine $(cmp -s <(machine_only < "$work/tk.crop") <(machine_only < "$work/tk.full") && echo same || echo DIFFERS)"
 		fi
 
+		# A driving cabinet's wheel and pedals, with no driving game to run:
+		# the core is asked (arcade_panel_probe) to make player 1's part of
+		# the panel a driving cabinet's whatever the game has, and to say what
+		# ArcadeDuck's own readers are then given. The wire: axes 2 Steering,
+		# 3 Accelerator, 4 Brake, 5 Clutch. What comes back must be what was
+		# said, in both flavors. It proves the wire as far as the emulator's
+		# input code, and not that any game reads it.
+		mkns11 "$work/tkwheel" '{"machine":"namco_system11","arcade_panel_probe":"driving"}'
+		local wheel="--axis 100:50:2:49152:32768 --axis 120:40:3:65535:0 --axis 200:10:4:13107:0 --axis 230:10:5:65535:0"
+		# shellcheck disable=SC2086
+		native "$work/tkwheel" --frames 300 $wheel 2>&1 | plain | grep 'panel probe' > "$work/wheel.n"
+		# shellcheck disable=SC2086
+		wbx "$work/tkwheel" --frames 300 $wheel 2>&1 | plain | grep 'panel probe' > "$work/wheel.w"
+		if [ -s "$work/wheel.n" ] && cmp -s "$work/wheel.n" "$work/wheel.w" \
+			&& grep -q 'steering 49152 accelerator 65535 brake 0 clutch 0' "$work/wheel.n" \
+			&& grep -q 'steering 32768 accelerator 0 brake 13107 clutch 0' "$work/wheel.n" \
+			&& grep -q 'steering 32768 accelerator 0 brake 0 clutch 65535' "$work/wheel.n"; then
+			report "panel:wheel" PASS "a wheel three quarters over, each pedal in turn: ArcadeDuck's input code holds exactly what the movie said, in both flavors (no driving game is here: this is the wire, not a game)"
+		else
+			report "panel:wheel" FAIL "flavors $(cmp -s "$work/wheel.n" "$work/wheel.w" && echo agree || echo DIFFER); read back: $(tr '\n' ';' < "$work/wheel.n" | sed 's/duckstation: panel probe: //g' | cut -c1-170)"
+		fi
+
 		# the package, through Chimera's engine, from a project with the presses in it
 		local chimera_root="${CHIMERA_ROOT:-}" c
 		[ -n "$chimera_root" ] || for c in "$root/../chimera" "$root/../../chimera"; do
@@ -418,7 +440,7 @@ arcade_tier() {
 	[ -n "$gq" ] || { [ -f "$adir/sets/cryptklr.zip" ] && gq="$adir/sets/cryptklr.zip"; }
 	[ -n "$gqdisk" ] || { [ -f "$adir/420uaa04.chd" ] && gqdisk="$adir/420uaa04.chd"; }
 	if [ -z "$gq" ] || [ -z "$gqdisk" ]; then
-		for leg in gq:compare gq:rewind; do
+		for leg in gq:compare gq:rewind gq:three; do
 			report "$leg" SKIP "needs tests/roms/arcade/sets/cryptklr.zip (CHIMERA_ARCADE_GQ_SET) and its hard disk tests/roms/arcade/420uaa04.chd (CHIMERA_ARCADE_GQ_DISK)"
 		done
 	else
@@ -429,7 +451,9 @@ arcade_tier() {
 		# The board tests itself for a minute. Then a coin, Start, and a gun
 		# aimed a little left of centre firing through the first stage. The
 		# wire: 4 Start, 5 Coin, 12 Trigger; axes 0 and 1 are the gun's aim.
-		local ck="--hold-axis 0:28000 --hold-axis 1:30000 --press 4300:6:5 --press 4400:6:4"
+		# The board's own setting is two coins a credit: one coin is "CREDIT 0 1/2"
+		# and Start does nothing, which a digest cannot tell from a game.
+		local ck="--hold-axis 0:28000 --hold-axis 1:30000 --press 4300:6:5 --press 4340:6:5 --press 4400:6:4"
 		for f in $(seq 4600 40 5560); do ck="$ck --press $f:4:12"; done
 		# shellcheck disable=SC2086
 		native "$work/ck" --frames 5600 $ck 2>/dev/null | digests > "$work/ck.n"
@@ -437,16 +461,36 @@ arcade_tier() {
 		wbx "$work/ck" --frames 5600 $ck 2>/dev/null | digests > "$work/ck.w"
 		native "$work/ck" --frames 5600 --hold-axis 0:28000 --hold-axis 1:30000 2>/dev/null | digests > "$work/ck.idle"
 		if [ -s "$work/ck.n" ] && cmp -s "$work/ck.n" "$work/ck.w" && ! cmp -s "$work/ck.n" "$work/ck.idle"; then
-			report "gq:compare" PASS "5600 frames of Crypt Killer from power-on through its self-test, a coin, Start and a gun firing: video, audio, lag, the machine every frame and memory identical, and not the attract mode's"
+			report "gq:compare" PASS "5600 frames of Crypt Killer from power-on through its self-test, the two coins of a credit, Start and a gun firing: video, audio, lag, the machine every frame and memory identical, and not the attract mode's"
 		else
 			report "gq:compare" FAIL "flavors $(cmp -s "$work/ck.n" "$work/ck.w" && echo agree || echo DIFFER: "$(diff "$work/ck.n" "$work/ck.w" | head -3 | tr '\n' ' ')"); played and idle $(cmp -s "$work/ck.n" "$work/ck.idle" && echo "are the SAME run" || echo differ)"
 		fi
 		# shellcheck disable=SC2086
 		wbx "$work/ck" --frames 5600 $ck --rewind 4250:5400 2>/dev/null | digests > "$work/ck.rw"
 		if [ -s "$work/ck.w" ] && cmp -s "$work/ck.w" "$work/ck.rw"; then
-			report "gq:rewind" PASS "kept at frame 4250 before the coin, restored at 5400 in the game and replayed: the straight run"
+			report "gq:rewind" PASS "kept at frame 4250 before the coins, restored at 5400 in the game and replayed: the straight run"
 		else
 			report "gq:rewind" FAIL "$(diff "$work/ck.w" "$work/ck.rw" | head -4 | tr '\n' ' ')"
+		fi
+
+		# A third player: this cabinet has three guns and two coin slots, and
+		# player 3's coin is slot 1's. With a second credit paid (65 is player
+		# 3's Coin), player 3's Start (64) must put a third player in the game,
+		# and the trigger (72) and aim (axes 16 and 17) must then change the
+		# game that a player 3 who only stands there is in.
+		local p3j="--press 4420:6:65 --press 4460:6:65 --press 4520:6:64"
+		local p3="$p3j --hold-axis 16:40000 --hold-axis 17:30000"
+		for f in $(seq 4700 40 5560); do p3="$p3 --press $f:4:72"; done
+		# shellcheck disable=SC2086
+		native "$work/ck" --frames 5600 $ck $p3 2>/dev/null | digests > "$work/ck3.n"
+		# shellcheck disable=SC2086
+		wbx "$work/ck" --frames 5600 $ck $p3 2>/dev/null | digests > "$work/ck3.w"
+		# shellcheck disable=SC2086
+		native "$work/ck" --frames 5600 $ck $p3j 2>/dev/null | digests > "$work/ck3.j"
+		if [ -s "$work/ck3.n" ] && cmp -s "$work/ck3.n" "$work/ck3.w" && ! cmp -s "$work/ck3.j" "$work/ck.n" && ! cmp -s "$work/ck3.n" "$work/ck3.j"; then
+			report "gq:three" PASS "a second credit and player 3's Start: not the one-player run; player 3's trigger and aim: not the run where player 3 only joined; identical in the sandbox"
+		else
+			report "gq:three" FAIL "flavors $(cmp -s "$work/ck3.n" "$work/ck3.w" && echo agree || echo DIFFER); player 3 joining and not $(cmp -s "$work/ck3.j" "$work/ck.n" && echo "are the SAME run" || echo differ); player 3 firing and standing $(cmp -s "$work/ck3.n" "$work/ck3.j" && echo "are the SAME run" || echo differ)"
 		fi
 	fi
 }
@@ -470,6 +514,7 @@ fi
 
 if [ -z "$bios" ]; then
 	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted region:rom \
+		mouse:menu guns:wire multitap:pads ports:columns negcon:race widescreen:machine \
 		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind \
 		gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord \
 		console:reset cards:export cards:import cards:refused cue:alone \
@@ -723,13 +768,65 @@ else
 	fi
 fi
 
+# ---- the other controllers ------------------------------------------------------
+#
+# A socket holds what its setting says, and the wires of that controller are
+# the live ones. Each kind is proved on what this machine has to prove it on:
+# the mouse on the console's own menu, which has a pointer for one; the light
+# guns on the bytes the console reads from them, because no gun game is here;
+# and (further down, with their games) the NeGcon in a race and the multitap
+# in a game that polls it.
+
+# The mouse. Wire: axes 10 and 11 are how far it moved this frame. The menu's
+# pointer must go where it is dragged, the same in the sandbox.
+mkwork "$work/mouse" "$bios" '{"port1":"mouse"}'
+native "$work/mouse" --frames 1400 2>/dev/null | digests > "$work/mouse.idle"
+native "$work/mouse" --frames 1400 --axis 1150:60:10:3:0 --axis 1150:60:11:2:0 2>/dev/null | digests > "$work/mouse.n"
+wbx "$work/mouse" --frames 1400 --axis 1150:60:10:3:0 --axis 1150:60:11:2:0 2>/dev/null | digests > "$work/mouse.w"
+if [ -s "$work/mouse.n" ] && cmp -s "$work/mouse.n" "$work/mouse.w" && ! cmp -s <(grep '^videoHash' "$work/mouse.n") <(grep '^videoHash' "$work/mouse.idle"); then
+	report "mouse:menu" PASS "a mouse in port 1, dragged for a second at the console's menu: the pointer moves, and the run is the same in the sandbox"
+else
+	report "mouse:menu" FAIL "flavors $(cmp -s "$work/mouse.n" "$work/mouse.w" && echo agree || echo DIFFER); dragged and still $(cmp -s <(grep '^videoHash' "$work/mouse.n") <(grep '^videoHash' "$work/mouse.idle") && echo "are the SAME picture" || echo differ)"
+fi
+
+# The guns. Wire: 20 Trigger, 21 Shoot Offscreen; axes 8 and 9 the aim. What
+# can be shown without a game is that each reaches the bytes the console reads
+# from the gun, which its pad driver keeps in memory: a GunCon reports its aim
+# in them, so trigger, aim and the off-screen shot must each change memory. A
+# Justifier reports its aim by WHEN it interrupts, which nothing on this
+# machine listens for - its trigger is held to the same test and its aim is
+# not tested at all.
+guns_ok=yes; guns_why=""
+mkwork "$work/guncon" "$bios" '{"port1":"guncon"}'
+native "$work/guncon" --frames 1300 2>/dev/null | digests > "$work/guncon.idle"
+native "$work/guncon" --frames 1300 --press 1290:10:20 2>/dev/null | digests > "$work/guncon.trig"
+native "$work/guncon" --frames 1300 --press 1290:10:21 2>/dev/null | digests > "$work/guncon.off"
+native "$work/guncon" --frames 1300 --hold-axis 8:9000 --hold-axis 9:50000 --press 1290:10:20 2>/dev/null | digests > "$work/guncon.n"
+wbx "$work/guncon" --frames 1300 --hold-axis 8:9000 --hold-axis 9:50000 --press 1290:10:20 2>/dev/null | digests > "$work/guncon.w"
+ram() { grep '^domain\[Main RAM\]' "$1"; }
+[ -s "$work/guncon.n" ] && cmp -s "$work/guncon.n" "$work/guncon.w" || { guns_ok=no; guns_why="$guns_why GunCon flavors DIFFER;"; }
+cmp -s <(ram "$work/guncon.idle") <(ram "$work/guncon.trig") && { guns_ok=no; guns_why="$guns_why GunCon trigger reaches nothing;"; }
+cmp -s <(ram "$work/guncon.idle") <(ram "$work/guncon.off") && { guns_ok=no; guns_why="$guns_why GunCon off-screen shot reaches nothing;"; }
+cmp -s <(ram "$work/guncon.trig") <(ram "$work/guncon.n") && { guns_ok=no; guns_why="$guns_why GunCon aim reaches nothing;"; }
+mkwork "$work/justifier" "$bios" '{"port1":"justifier"}'
+native "$work/justifier" --frames 1300 2>/dev/null | digests > "$work/just.idle"
+native "$work/justifier" --frames 1300 --press 1290:10:20 2>/dev/null | digests > "$work/just.n"
+wbx "$work/justifier" --frames 1300 --press 1290:10:20 2>/dev/null | digests > "$work/just.w"
+[ -s "$work/just.n" ] && cmp -s "$work/just.n" "$work/just.w" || { guns_ok=no; guns_why="$guns_why Justifier flavors DIFFER;"; }
+cmp -s <(ram "$work/just.idle") <(ram "$work/just.n") && { guns_ok=no; guns_why="$guns_why Justifier trigger reaches nothing;"; }
+if [ "$guns_ok" = yes ]; then
+	report "guns:wire" PASS "a GunCon's trigger, off-screen shot and aim each change the bytes the console reads from it, and a Justifier's trigger does; the same in the sandbox (no gun game is here: this is the wire, not a game)"
+else
+	report "guns:wire" FAIL "$guns_why"
+fi
+
 # ---- the console's own button -------------------------------------------------
 
 # Reset, on the case: pressed at the menu, the console starts over, and the
 # run cannot be the one in which nobody pressed it.
 native "$work/shell" --frames 1500 2>/dev/null | digests > "$work/reset.idle"
-native "$work/shell" --frames 1500 --press 1150:3:34 2>/dev/null | digests > "$work/reset.n"
-wbx "$work/shell" --frames 1500 --press 1150:3:34 2>/dev/null | digests > "$work/reset.w"
+native "$work/shell" --frames 1500 --press 1150:3:200 2>/dev/null | digests > "$work/reset.n"
+wbx "$work/shell" --frames 1500 --press 1150:3:200 2>/dev/null | digests > "$work/reset.w"
 if [ -s "$work/reset.n" ] && ! cmp -s "$work/reset.idle" "$work/reset.n" && cmp -s "$work/reset.n" "$work/reset.w"; then
 	report "console:reset" PASS "Reset at frame 1150 is a different run from the idle one, and the same run in the sandbox"
 else
@@ -810,7 +907,7 @@ fi
 # ---- tier three: a disc ----------------------------------------------------
 
 if [ -z "$disc" ]; then
-	for leg in disc:compare disc:rerecord disc:rewind disc:nameless engine:project; do
+	for leg in disc:compare disc:rerecord disc:rewind disc:nameless engine:project multitap:pads ports:columns; do
 		report "$leg" SKIP "needs a disc: tests/roms/NHL Blades of Steel 2000 (USA).cue, or CHIMERA_PS1_DISC=<a .cue>"
 	done
 else
@@ -898,6 +995,67 @@ else
 			report "engine:project" FAIL "$(grep -h -E '^(status|detail)=' "$ep/meta.txt" 2>/dev/null | tr '\n' ' ') $(tail -1 "$ep/run.log" | plain | cut -c1-160)"
 		fi
 	fi
+
+	# ---- a multitap ------------------------------------------------------------
+	# One in port 1, with a pad in each of its other three sockets. The game
+	# polls it (an ice hockey game takes eight players), so the pad in socket
+	# 1B - the third block of the wire - must be able to change the run, and
+	# must not be able to with no multitap there.
+	withdisc() { # <dir>: the sheet, its files and the slot map, as $work/disc has them
+		cp "$disc" "$1/"
+		sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$disc" | while IFS= read -r f; do ln -s "$discdir/$f" "$1/$f"; done
+		printf '{"disc":["%s"]}' "$(basename "$disc")" > "$1/slots"
+	}
+	mkwork "$work/tap" "$bios" '{"multitap":"port1","port1b":"digital","port1c":"digital","port1d":"digital"}'
+	withdisc "$work/tap"
+	native "$work/tap" --frames 1800 --exercise 2>/dev/null | digests > "$work/tap.a"
+	native "$work/tap" --frames 1800 --exercise --exercise-pad 3 2>/dev/null | digests > "$work/tap.n"
+	wbx "$work/tap" --frames 1800 --exercise --exercise-pad 3 2>/dev/null | digests > "$work/tap.w"
+	native "$work/disc" --frames 1800 --exercise --exercise-pad 3 2>/dev/null | digests > "$work/notap.b"
+	if [ -s "$work/tap.n" ] && cmp -s "$work/tap.n" "$work/tap.w" && ! cmp -s "$work/tap.a" "$work/tap.n" \
+		&& cmp -s "$work/notap.b" "$work/disc.n" && ! cmp -s "$work/tap.a" "$work/disc.n"; then
+		report "multitap:pads" PASS "a multitap in port 1 with four pads: the game is another machine with it, the pad in socket 1B changes the run and cannot without the multitap; identical in the sandbox"
+	else
+		report "multitap:pads" FAIL "flavors $(cmp -s "$work/tap.n" "$work/tap.w" && echo agree || echo DIFFER); pad 1B $(cmp -s "$work/tap.a" "$work/tap.n" && echo "changes NOTHING" || echo "changes the run"); the same pad with no multitap $(cmp -s "$work/notap.b" "$work/disc.n" && echo "changes nothing" || echo "CHANGES the run"); with and without a multitap $(cmp -s "$work/tap.a" "$work/disc.n" && echo "are the SAME machine" || echo differ)"
+	fi
+
+	# ---- the columns of a movie, for every kind of socket --------------------
+	# A movie has a column for each LIVE control, and which are live is the
+	# core's to say (IsButtonActive, IsAxisActive) for whatever is plugged in.
+	# make-project.py restates that rule; the engine records a row; the two
+	# must agree for a NeGcon, a mouse, the guns, the analog joystick and two
+	# arrangements of multitap - or a movie made for one of them is read by
+	# the frontend under the wrong names.
+	if [ -z "$chimera_root" ] || [ ! -x "$crun" ] || [ ! -f "$cpkg" ]; then
+		report "ports:columns" SKIP "needs chimera-run and an installed duckstation.chimeraCore (set CHIMERA_ROOT; run waterbox/build-package.sh -r <chimera>)"
+	elif [ "$cpkg" -ot "$gst/core.wbx" ]; then
+		report "ports:columns" FAIL "the installed package is older than core.wbx: run waterbox/build-package.sh"
+	else
+		cp_dir="$work/columns"; mkdir -p "$cp_dir"
+		cargs=("disc=$work/disc/$(basename "$disc")")
+		while IFS= read -r f; do cargs+=("support=$discdir/$f"); done < <(sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$disc")
+		cols_ok=yes; cols_why=""; cols_n=0
+		for conf in "port1=negcon" "port1=mouse" "port1=guncon port2=justifier" "port1=analogJoystick port2=negconRumble" \
+			"multitap=port1 port1b=digital port1c=dualshock port1d=negcon" \
+			"multitap=both port2=digital port2b=mouse port2d=guncon"; do
+			sets=(); for kv in $conf; do sets+=("--set=$kv"); done
+			python3 "$here/tests/make-project.py" "$cpkg" "$cp_dir/shape.chimeraProject" 0 "${sets[@]}" "${cargs[@]}" > "$cp_dir/log" 2>&1
+			rm -f "$cp_dir/shape.txt"
+			"$crun" --project "$cp_dir/shape.chimeraProject" "$cpkg" --files "$discdir" --firmware "bios=$bios" \
+				--frames 1 --record "$cp_dir/shape.txt" >> "$cp_dir/log" 2>&1
+			row="$(head -1 "$cp_dir/shape.txt" 2>/dev/null)"
+			if [ -n "$row" ] && python3 "$here/tests/make-project.py" "$cpkg" "$cp_dir/check.chimeraProject" 1 "--idle-row=$row" "${sets[@]}" "${cargs[@]}" >> "$cp_dir/log" 2>&1; then
+				cols_n=$((cols_n + 1))
+			else
+				cols_ok=no; cols_why="$cols_why [$conf] $(tail -1 "$cp_dir/log" | cut -c1-110);"
+			fi
+		done
+		if [ "$cols_ok" = yes ]; then
+			report "ports:columns" PASS "$cols_n arrangements of sockets - a NeGcon, a mouse, both guns, the analog joystick, two of multitap: the row the engine records has the columns the rule gives it"
+		else
+			report "ports:columns" FAIL "$cols_why"
+		fi
+	fi
 fi
 
 # ---- a game played: boot, menus, a race --------------------------------------
@@ -913,7 +1071,7 @@ fi
 game3d="${CHIMERA_PS1_GAME3D:-}"
 [ -n "$game3d" ] || { [ -f "$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue" ] && game3d="$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue"; }
 if [ -z "$game3d" ]; then
-	for leg in play:compare play:rewind gpu:play gpu:enhancements; do
+	for leg in play:compare play:rewind gpu:play gpu:enhancements negcon:race widescreen:machine; do
 		report "$leg" SKIP "needs tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue with its image, or CHIMERA_PS1_GAME3D=<that .cue>"
 	done
 else
@@ -993,6 +1151,46 @@ else
 			report "gpu:enhancements" FAIL "${wrong#; }"
 		fi
 	fi
+
+	# ---- a NeGcon ---------------------------------------------------------------
+	# The same game, which takes one. Its analog button I is what this game
+	# reads as Cross - pressed home through the menus and held as the
+	# accelerator (axis 5) - and the twist is the steering (axis 4): a second
+	# and a half of it in the race must change the race.
+	mk3d "$work/negcon" '{"port1":"negcon","fast_boot":true}'
+	ng="--press 900:4:4 --press 1100:4:4 --press 1300:4:4"
+	for f in $(seq 1500 150 5400); do ng="$ng --axis $f:4:5:255:0"; done
+	ng="$ng --axis 5500:1100:5:255:0"
+	native "$work/negcon" --frames 6400 2>/dev/null | digests > "$work/ng.idle"
+	# shellcheck disable=SC2086
+	native "$work/negcon" --frames 6400 $ng 2>/dev/null | digests > "$work/ng.straight"
+	# shellcheck disable=SC2086
+	native "$work/negcon" --frames 6400 $ng --axis 6000:100:4:70:128 2>/dev/null | digests > "$work/ng.n"
+	# shellcheck disable=SC2086
+	wbx "$work/negcon" --frames 6400 $ng --axis 6000:100:4:70:128 2>/dev/null | digests > "$work/ng.w"
+	if [ -s "$work/ng.n" ] && cmp -s "$work/ng.n" "$work/ng.w" && ! cmp -s "$work/ng.straight" "$work/ng.idle" && ! cmp -s "$work/ng.n" "$work/ng.straight"; then
+		report "negcon:race" PASS "the game driven by a NeGcon - its analog button through the menus and as the accelerator, its twist in the race: each changes the run, and it is identical in the sandbox"
+	else
+		report "negcon:race" FAIL "flavors $(cmp -s "$work/ng.n" "$work/ng.w" && echo agree || echo DIFFER); the analog button $(cmp -s "$work/ng.straight" "$work/ng.idle" && echo "reaches NOTHING" || echo "is read"); the twist $(cmp -s "$work/ng.n" "$work/ng.straight" && echo "changes NOTHING" || echo "changes the race")"
+	fi
+
+	# ---- the widescreen hack -----------------------------------------------------
+	# It widens what the geometry processor computes, so the video chip draws
+	# other triangles and is busy for other lengths of time: the machine is a
+	# different one with it on (measured, not assumed), and the same one in
+	# both flavors.
+	mk3d "$work/wide" '{"fast_boot":true,"widescreen":"16:9"}'
+	# shellcheck disable=SC2086
+	native "$work/play" --frames 6000 $presses 2>/dev/null | digests > "$work/wide.off"
+	# shellcheck disable=SC2086
+	native "$work/wide" --frames 6000 $presses 2>/dev/null | digests > "$work/wide.n"
+	# shellcheck disable=SC2086
+	wbx "$work/wide" --frames 6000 $presses 2>/dev/null | digests > "$work/wide.w"
+	if [ -s "$work/wide.n" ] && cmp -s "$work/wide.n" "$work/wide.w" && ! cmp -s <(machine_only < "$work/wide.n") <(machine_only < "$work/wide.off"); then
+		report "widescreen:machine" PASS "the race with the view widened for 16:9: identical in the sandbox, and another machine than the race without it"
+	else
+		report "widescreen:machine" FAIL "flavors $(cmp -s "$work/wide.n" "$work/wide.w" && echo agree || echo DIFFER); with and without $(cmp -s <(machine_only < "$work/wide.n") <(machine_only < "$work/wide.off") && echo "are the SAME machine - the setting changed nothing" || echo differ)"
+	fi
 fi
 
 # ---- two discs, and the lid ----------------------------------------------------
@@ -1011,12 +1209,12 @@ else
 		sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$sheet" | sort -u | while IFS= read -r f; do ln -s "$(dirname "$sheet")/$f" "$work/two/$f"; done
 	done
 	printf '{"disc":["%s","%s"]}' "$(basename "$disc")" "$(basename "$game3d")" > "$work/two/slots"
-	second="$(native "$work/two" --frames 1500 --press 1300:120:37 2>&1 | plain | grep -c 'Inserted media from .*SLUS-01104')"
+	second="$(native "$work/two" --frames 1500 --press 1300:120:203 2>&1 | plain | grep -c 'Inserted media from .*SLUS-01104')"
 	printf '{}' > "$work/two/settings"
 	native "$work/two" --frames 1700 2>/dev/null | digests > "$work/two.idle"
-	native "$work/two" --frames 1700 --press 1300:120:37 2>/dev/null | digests > "$work/two.n"
-	wbx "$work/two" --frames 1700 --press 1300:120:37 2>/dev/null | digests > "$work/two.w"
-	wbx "$work/two" --frames 1700 --press 1300:120:37 --rewind 1250:1600 2>/dev/null | digests > "$work/two.rw"
+	native "$work/two" --frames 1700 --press 1300:120:203 2>/dev/null | digests > "$work/two.n"
+	wbx "$work/two" --frames 1700 --press 1300:120:203 2>/dev/null | digests > "$work/two.w"
+	wbx "$work/two" --frames 1700 --press 1300:120:203 --rewind 1250:1600 2>/dev/null | digests > "$work/two.rw"
 	if [ "$second" -ge 1 ] && [ -s "$work/two.n" ] && ! cmp -s "$work/two.idle" "$work/two.n" \
 		&& cmp -s "$work/two.n" "$work/two.w" && cmp -s "$work/two.w" "$work/two.rw"; then
 		report "disc:swap" PASS "the lid held up for 120 frames closes on the second disc; identical in the sandbox, and a rewind from before the swap to after it replays it"

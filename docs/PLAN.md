@@ -99,10 +99,11 @@ and declared.
   `clock:virtual`).
 - **M2 - the guest build.** DONE 2026-10-09: `core.wbx` links, passes
   `check-wbx.sh`, and agrees with the native reference.
-- **M3 - input, lag, savestates as gate legs.** DONE 2026-10-09 for two
-  ports of digital pad or DualShock, and the console's Reset button. The
-  other controllers upstream has (mouse, GunCon, NeGcon, Justifier, analog
-  joystick) and the multitap are not wired.
+- **M3 - input, lag, savestates as gate legs.** DONE 2026-10-09: two ports
+  and the six more a multitap in each gives, every controller upstream has
+  in any of them, and the console's Reset button (see "The other
+  controllers, the multitap and the widescreen hack" for what each was
+  proved on, which for the guns is not a game).
 - **M4 - discs and memory cards.** DONE 2026-10-09: up to eight discs with a
   selector and a lid, memory cards in the machine's memory with import and
   export. Not tried: a game that asks for its second disc, a save a game
@@ -112,13 +113,11 @@ and declared.
   declarations, `build-package.sh`, Chimera's contract tests, a project
   through `chimera-run`, and the frontend gate under Mono and, by hand, on
   Windows (see "The frontend gate").
-- **M6 - the hardware renderer.** DONE 2026-10-09 but for widescreen: it
-  runs inside the sandbox on Mesa softpipe and, through the GPU bridge, on a
-  real card (a GTX 1060), at 1x to 8x, with states, rewind and an exact
-  picture after a load, and with true colour, texture filtering,
-  downsampling, PGXP and crop as settings. The widescreen hack is not
-  offered: it makes a 16:9 picture, and a package declares one shape for its
-  picture (see "What is the owner's").
+- **M6 - the hardware renderer.** DONE 2026-10-09: it runs inside the
+  sandbox on Mesa softpipe and, through the GPU bridge, on a real card (a
+  GTX 1060), at 1x to 8x, with states, rewind and an exact picture after a
+  load, and with true colour, texture filtering, downsampling, PGXP, crop
+  and the widescreen hack as settings.
 - **M7 - speed.** NOT NEEDED so far: the interpreter runs a 3D race at eight
   times real time in the sandbox (see "A game played"). The code generators
   stay unbuilt, and with them the question of write protection.
@@ -496,7 +495,8 @@ the same reason). It needs `waterbox/setup-mesa.sh` run first.
   and the console's market are two things: upstream warns about a mismatch
   and runs.
 - **The wire** is per port the DualShock's seventeen buttons and four stick
-  bytes. A stick axis is declared 0..255 with 128 at rest and is the byte the
+  bytes (as first published; eight sockets of every controller since - see
+  "The other controllers, the multitap and the widescreen hack"). A stick axis is declared 0..255 with 128 at rest and is the byte the
   pad reports: upstream takes half axes as floats and merges them, so the
   adapter inverts that (`SetStickByte`) and every byte is reachable. Upstream's
   1.33 stick sensitivity, its dead zone and its "left stick is the d-pad in
@@ -520,12 +520,14 @@ upwards), and nothing at all on Windows.
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
 with a Chimera checkout, with a GL context for the bridge, with the 3D game -
 and then the arcade boards, which need no PlayStation BIOS and are run
-whether or not there is one (`-a` runs them alone). 49 legs, eleven minutes
-here, all of them passing on 2026-10-09: 36 are the console's, with the
+whether or not there is one (`-a` runs them alone). 57 legs, sixteen minutes
+here, all of them passing on 2026-10-09: 42 are the console's, with the
 SCPH-7001 BIOS, NHL Blades of Steel 2000 (USA) and Need for Speed: Porsche
 Unleashed (USA) - five of them the hardware renderer's on softpipe, sandbox
-against itself, and six the bridge's, drawn by llvmpipe - and 13 are the
+against itself, and six the bridge's, drawn by llvmpipe - and 15 are the
 arcade boards', with Tekken (`tekkenac`) and Crypt Killer (`cryptklr`).
+Eight of the 57 came with the other controllers and the wider panel, and
+have their own account further down.
 
 The arcade legs passed the first time they were run, all of them, which is
 the best reason there is to break each one. Four builds did it:
@@ -822,15 +824,17 @@ files instead of 280.
 
 ### The patch series for the arcade tree
 
-Eight of the console's eleven patches applied to ArcadeDuck's tree
+Eight of the console's first eleven patches applied to ArcadeDuck's tree
 unchanged, because its base is the pin. The other three were ported by hand,
-and three are the arcade tree's own:
+and three are the arcade tree's own (the console's twelfth, a gun aimed at
+the picture, is not there: an arcade gun is told its aim by `ChimeraSetGun`):
 
 - `0004` (memory without shared memory): one hunk moved, because RAM there
   is as large as the board makes it (`g_ram_size`).
 - `0007` is not the console's (there is no `pad.cpp`): the panel is told
   what is held, by name, through three calls added to `arcade_input.cpp`
-  (`ChimeraSetDigital`, `ChimeraSetOperator`, `ChimeraSetGun`), and a frame
+  (`ChimeraSetDigital`, `ChimeraSetOperator`, `ChimeraSetGun`; and since,
+  `ChimeraSetDriving` and `ChimeraAddTrackball`), and a frame
   is not a lag frame when a board asked what was held (`IsDigitalPressed`,
   `GetAnalogValue`, Konami GQ's `ReadGQInput`).
 - `0010` (what the card holds outlives a load): the same four hooks, with
@@ -859,8 +863,9 @@ adapter gives its input code exactly that (as its own frontend would, by the
 live wires - Tekken's panel is a stick, four buttons, Start and a coin slot
 for each of two players, and that is all its movies have columns for.
 
-Not wired: a driving cabinet's wheel and pedals, a trackball, and the
-sensors of Konami's Tokimeki cabinet. No set that needs them has run here.
+That was the first published panel. The wire is wider since (see "The arcade
+panel", below): thirty buttons and eight axes a player, with a driving
+cabinet's wheel and pedals and a trackball among them.
 
 ### Board memory
 
@@ -942,9 +947,13 @@ Two boards, each on one game, both on 2026-10-09:
   the sandbox.
 - **Konami GQ: Crypt Killer** (`cryptklr`, with its hard disk
   `420uaa04.chd`). The board's self-test (a minute of it), the attract mode,
-  a coin, Start and a light gun firing through the first stage: identical
+  a credit, Start and a light gun firing through the first stage: identical
   native and sandboxed over 5600 frames, and across a rewind from before the
-  coin into the game.
+  coins into the game. (As first published this leg put in ONE coin, and the
+  board's own setting is two a credit: Start did nothing, the run differed
+  from the attract mode's by half a credit on the screen, and the leg said
+  a game had been played. Found when a third player would not join; see
+  "The arcade panel".)
 
 Not tried, and not to be said to work:
 
@@ -957,8 +966,8 @@ Not tried, and not to be said to work:
 - **Above 4x on a System 11 board.** Its VRAM is 1024 lines, twice the
   console's, and at 8x the buffer the card writes into is 256 MB where the
   memory layout has 192 MB of room for it. Not measured.
-- **Cabinets with a wheel, a trackball or sensors**, and more than two
-  players.
+- **A game that reads a wheel, a trackball or sensors.** The wire is there
+  (see "The arcade panel") and no set that reads it has run here.
 
 ### What the owner's sets could and could not do
 
@@ -981,6 +990,141 @@ safety check when it was pointed at the missing ones. It was left there. The
 ZN boards, and Konami GV (its BIOS archive is here and no game), are
 compiled in and not declared: `waterbox.config` offers a board when a
 complete set has been booted on it.
+
+## The other controllers, the multitap and the widescreen hack (user-decided, 2026-10-09)
+
+The owner asked for what the first published build left out: "the console's
+other controllers (mouse, light guns, NeGcon) and the multitap, the
+widescreen hack, and an arcade cabinet's wheel, trackball or more than two
+players".
+
+### The console's wire
+
+Eight sockets of twenty-five buttons and twelve axes, then the console's
+four controls. The sockets are upstream's own pads in upstream's own order -
+port 1, port 2, then the three more a multitap in port 1 gives (1B 1C 1D),
+then port 2's - so P1 and P2 are the two ports whether or not a multitap is
+there, and a movie made without one names port 2 as a movie made with one
+does. What a socket holds is a setting (`port1`, `port2`, `port1b` ..
+`port2d`, and `multitap`), and only that controller's wires are live; a
+socket of a multitap that is not plugged in holds nothing whatever is said.
+
+Every controller upstream has is offered: the digital pad, the DualShock,
+the analog joystick, the NeGcon and its rumble model, the GunCon, the
+Justifier and the mouse. Where a control has the same name on two
+controllers it is one wire (the d-pad and Start of a NeGcon are the pad's);
+where it has its own it has its own (A, B, R; Trigger, Shoot Offscreen,
+Back; Mouse Left, Mouse Right). The axes are what the device reports:
+
+- **Sticks and the NeGcon's twist** are the byte: 0..255, 128 at rest. The
+  twist reaches upstream as two half axes and comes out as
+  round(128 * (right - left) + 128), so byte b is (b - 128) / 128 on one
+  side - quotients a float holds exactly.
+- **I, II and L** are a NeGcon's analog buttons: 0 released, 255 home.
+- **A gun's aim** is 0..65535 across the picture and down it. Upstream has no
+  absolute axis for a gun: with no host pointer it takes four "relative"
+  half axes and makes a position in a window of them, then finds the
+  rectangle of the window the picture is drawn in. There is no window, so
+  the window is the unit square (`ImGuiManager::GetWindowWidth` answers 1)
+  and `patches/0012` makes a pointer a fraction of the raster.
+- **The mouse** is how far it moved this frame, in its own counts, given to
+  upstream once a frame.
+
+### What each was proved on
+
+Nobody has a light gun game, a mouse game or an eight-player game on this
+machine, so each device was held to the most this machine could show:
+
+- **The mouse: the console's own menu**, which has a pointer when a mouse is
+  plugged in. Dragged for a second, the pointer moves (`mouse:menu`).
+- **The NeGcon: Need for Speed - Porsche Unleashed**, which takes one. The
+  game reads its analog button I as Cross: pressed home through the menus
+  and held as the accelerator it reaches a race, and a second and a half of
+  twist in the race changes the race (`negcon:race`).
+- **The multitap: NHL Blades of Steel 2000.** With one in port 1 and four
+  pads the game is another machine; the pad in socket 1B changes the run,
+  and the same presses with no multitap change nothing (`multitap:pads`).
+- **The guns: the bytes the console reads.** A GunCon's trigger, off-screen
+  shot and aim each change what the console's pad driver read from it; a
+  Justifier's trigger does (`guns:wire`). That is the wire and not a game:
+  whether a shot lands where it was aimed has not been seen, and a
+  Justifier's aim - which it reports by WHEN it interrupts, not in its
+  bytes - has not been tested at all.
+- **The analog joystick and the NeGcon with rumble** share the DualShock's
+  and the NeGcon's code paths and have only been held to `ports:columns`.
+
+`ports:columns` holds the other half: for six arrangements of sockets the
+row Chimera's engine records has exactly the columns the test rule gives it,
+which is what the frontend reads a movie by.
+
+### The widescreen hack
+
+A setting, `widescreen` (off, 16:9, 19:9, 20:9), offered the way the Dolphin
+core offers its own: the game's 3D view is widened by changing what the
+geometry processor computes, the picture stays the console's raster,
+squeezed, and the frontend's Aspect Ratio setting shows it at its shape. The
+earlier note that this needed a new declaration from Chimera was wrong - it
+needs the user to set one frontend option, which is what Dolphin's
+description already tells them.
+
+It changes the MACHINE, measured: in the race with 16:9 the sound, the lag
+count and memory all differ from the race without (`widescreen:machine`),
+because other triangles are drawn and the video chip is busy for other
+lengths of time. A movie made with it needs it.
+
+### The arcade panel
+
+Per player, every control ArcadeDuck's boards read - thirty buttons where
+there were fourteen (a driving cabinet's shift, handbrake, view, horn and
+music buttons; the select, enter and sensor buttons of Konami's stranger
+cabinets) - and eight axes: a gun's aim, a wheel, three pedals, and a
+trackball's roll this frame. A wheel and pedals go to ArcadeDuck's input
+code as the fraction the movie says, with no dead zone and no curve; a
+trackball's counts go straight to the board that reads it.
+
+- **More than two players: Crypt Killer**, whose cabinet has three guns and
+  two coin slots (players 1 and 3 share the first). With a second credit
+  paid through player 3's coin, player 3's Start puts a third player in the
+  game - seen on the screen, "3P" and its three hearts - and the trigger and
+  aim then change the game a player 3 who only stands there is in
+  (`gq:three`). The leg first failed for a reason that was the gate's and
+  not the wire's: the board asks two coins a credit, nobody had paid for
+  player 3, and nobody had paid for player 1 either (see "What ran").
+- **A wheel and pedals: no driving set is here.** The core can be asked
+  (`arcade_panel_probe`, a question and not a setting) to make player 1's
+  part of the panel a driving cabinet's whatever the game has, and says what
+  ArcadeDuck's own readers are then given: exactly what the movie said
+  (`panel:wheel`). The wire is proved as far as the emulator's input code.
+  No game has read it.
+- **A trackball: not proved at all.** Its counts are handed to the two
+  boards that read one (Konami GV, and Family Bowl on System 11), neither of
+  which has a set here, and there is nothing to read them back from.
+
+### What ran, and what has not been broken yet
+
+On 2026-10-09: the core gate 57 ok, 0 failed, 0 skipped, in sixteen minutes
+with another core's tests running beside it; the frontend gate 6 ok;
+Chimera's contract tests 13 of 13 (one more than before - Chimera gained
+one).
+
+Two of the eight new legs have been seen red, both for faults of the gate
+and not of the core, which is still a leg seen to fail:
+
+- `ports:columns` failed on two multitap arrangements because the test's
+  own rule dropped an empty socket's group from between two live ones; the
+  engine keeps it, so that the sockets after it stay where they are.
+- `gq:three` failed with "with and without player 3 are the SAME run",
+  which was true: nobody had paid.
+
+The other six - `mouse:menu`, `guns:wire`, `multitap:pads`, `negcon:race`,
+`widescreen:machine`, `panel:wheel` - have NOT yet been broken on purpose.
+Each compares a run with the device used against one without, so each has a
+way to fail; none has been made to.
+
+The gate's three legs that go through Chimera's engine ran on the engine as
+this machine had it built that morning; the frontend gate, the contract
+tests and a second pass of `ports:columns` by hand ran on it rebuilt at
+chimera 7a335a3.
 
 ## Sharp edges
 
@@ -1018,19 +1162,12 @@ Not yet asked, and decided provisionally so the work could go on:
   already ran at 37 frames a second on a GTX 1060 for that reason.
 - **This repository's own files are MIT**, as the other cores' are, with two
   files made from upstream's source under its GPL-3.0.
-- **Widescreen.** Upstream's widescreen hack changes what the game draws to
-  suit a 16:9 screen; the frame is still the console's raster and has to be
-  SHOWN 16:9. A package declares one shape for its picture
-  (`virtualWidth`/`virtualHeight`), so offering it properly needs the shape
-  to follow a setting - a declaration every core could use, and so a change
-  to Chimera's design and not something this core may special-case. Not
-  offered until that is decided.
-
 - **A mirror of the pin.** The submodule fetches `14ab642` from upstream's
   own repository, which can stop offering it. Suggested: a fork under the
   project's account holding that commit, and the submodule pointed at it.
 
-The five above were put to the owner twice and not answered before the
+The four above were put to the owner twice and not answered before the
 repository was published; they stand as written until he says otherwise.
-chimera#221 stays open: the request names boards and features (the ZN
-boards, 16x, widescreen) that are not offered.
+A fifth, widescreen, was answered by his asking for it (2026-10-09) and
+turned out to need nothing from Chimera. chimera#221 stays open: the request
+names boards and a resolution (the ZN boards, 16x) that are not offered.

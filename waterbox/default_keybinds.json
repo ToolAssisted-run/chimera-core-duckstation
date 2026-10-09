@@ -35,6 +35,14 @@
       "P1 L3": "E, J1 B11, X1 LeftStick",
       "P1 R3": "R, J1 B12, X1 RightStick",
       "P1 Analog": "Tab, J1 B13",
+      "P1 A": "V",
+      "P1 B": "B",
+      "P1 R": "N",
+      "P1 Trigger": "WMouse L",
+      "P1 Shoot Offscreen": "WMouse R",
+      "P1 Back": "G",
+      "P1 Mouse Left": "WMouse L",
+      "P1 Mouse Right": "WMouse R",
       "P2 Up": "J2 POV1U, X2 DpadUp",
       "P2 Down": "J2 POV1D, X2 DpadDown",
       "P2 Left": "J2 POV1L, X2 DpadLeft",
@@ -51,7 +59,169 @@
       "P2 R2": "J2 B8, X2 RightTrigger",
       "P2 L3": "J2 B11, X2 LeftStick",
       "P2 R3": "J2 B12, X2 RightStick",
-      "P2 Analog": "J2 B13"
+      "P2 Analog": "J2 B13",
+      "P2 A": "",
+      "P2 B": "",
+      "P2 R": "",
+      "P2 Trigger": "",
+      "P2 Shoot Offscreen": "",
+      "P2 Back": "",
+      "P2 Mouse Left": "",
+      "P2 Mouse Right": "",
+      "P3 Up": "J3 POV1U, X3 DpadUp",
+      "P3 Down": "J3 POV1D, X3 DpadDown",
+      "P3 Left": "J3 POV1L, X3 DpadLeft",
+      "P3 Right": "J3 POV1R, X3 DpadRight",
+      "P3 Start": "J3 B10, X3 Start",
+      "P3 Select": "J3 B9, X3 Back",
+      "P3 Square": "J3 B1, X3 X",
+      "P3 Cross": "J3 B2, X3 A",
+      "P3 Circle": "J3 B3, X3 B",
+      "P3 Triangle": "J3 B4, X3 Y",
+      "P3 L1": "J3 B5, X3 LeftShoulder",
+      "P3 R1": "J3 B6, X3 RightShoulder",
+      "P3 L2": "J3 B7, X3 LeftTrigger",
+      "P3 R2": "J3 B8, X3 RightTrigger",
+      "P3 L3": "J3 B11, X3 LeftStick",
+      "P3 R3": "J3 B12, X3 RightStick",
+      "P3 Analog": "J3 B13",
+      "P3 A": "",
+      "P3 B": "",
+      "P3 R": "",
+      "P3 Trigger": "",
+      "P3 Shoot Offscreen": "",
+      "P3 Back": "",
+      "P3 Mouse Left": "",
+      "P3 Mouse Right": "",
+      "P4 Up": "J4 POV1U, X4 DpadUp",
+      "P4 Down": "J4 POV1D, X4 DpadDown",
+      "P4 Left": "J4 POV1L, X4 DpadLeft",
+      "P4 Right": "J4 POV1R, X4 DpadRight",
+      "P4 Start": "J4 B10, X4 Start",
+      "P4 Select": "J4 B9, X4 Back",
+      "P4 Square": "J4 B1, X4 X",
+      "P4 Cross": "J4 B2, X4 A",
+      "P4 Circle": "J4 B3, X4 B",
+      "P4 Triangle": "J4 B4, X4 Y",
+      "P4 L1": "J4 B5, X4 LeftShoulder",
+      "P4 R1": "J4 B6, X4 RightShoulder",
+      "P4 L2": "J4 B7, X4 LeftTrigger",
+      "P4 R2": "J4 B8, X4 RightTrigger",
+      "P4 L3": "J4 B11, X4 LeftStick",
+      "P4 R3": "J4 B12, X4 RightStick",
+      "P4 Analog": "J4 B13",
+      "P4 A": "",
+      "P4 B": "",
+      "P4 R": "",
+      "P4 Trigger": "",
+      "P4 Shoot Offscreen": "",
+      "P4 Back": "",
+      "P4 Mouse Left": "",
+      "P4 Mouse Right": "",
+      "P5 Up": "J5 POV1U, X5 DpadUp",
+      "P5 Down": "J5 POV1D, X5 DpadDown",
+      "P5 Left": "J5 POV1L, X5 DpadLeft",
+      "P5 Right": "J5 POV1R, X5 DpadRight",
+      "P5 Start": "J5 B10, X5 Start",
+      "P5 Select": "J5 B9, X5 Back",
+      "P5 Square": "J5 B1, X5 X",
+      "P5 Cross": "J5 B2, X5 A",
+      "P5 Circle": "J5 B3, X5 B",
+      "P5 Triangle": "J5 B4, X5 Y",
+      "P5 L1": "J5 B5, X5 LeftShoulder",
+      "P5 R1": "J5 B6, X5 RightShoulder",
+      "P5 L2": "J5 B7, X5 LeftTrigger",
+      "P5 R2": "J5 B8, X5 RightTrigger",
+      "P5 L3": "J5 B11, X5 LeftStick",
+      "P5 R3": "J5 B12, X5 RightStick",
+      "P5 Analog": "J5 B13",
+      "P5 A": "",
+      "P5 B": "",
+      "P5 R": "",
+      "P5 Trigger": "",
+      "P5 Shoot Offscreen": "",
+      "P5 Back": "",
+      "P5 Mouse Left": "",
+      "P5 Mouse Right": "",
+      "P6 Up": "J6 POV1U, X6 DpadUp",
+      "P6 Down": "J6 POV1D, X6 DpadDown",
+      "P6 Left": "J6 POV1L, X6 DpadLeft",
+      "P6 Right": "J6 POV1R, X6 DpadRight",
+      "P6 Start": "J6 B10, X6 Start",
+      "P6 Select": "J6 B9, X6 Back",
+      "P6 Square": "J6 B1, X6 X",
+      "P6 Cross": "J6 B2, X6 A",
+      "P6 Circle": "J6 B3, X6 B",
+      "P6 Triangle": "J6 B4, X6 Y",
+      "P6 L1": "J6 B5, X6 LeftShoulder",
+      "P6 R1": "J6 B6, X6 RightShoulder",
+      "P6 L2": "J6 B7, X6 LeftTrigger",
+      "P6 R2": "J6 B8, X6 RightTrigger",
+      "P6 L3": "J6 B11, X6 LeftStick",
+      "P6 R3": "J6 B12, X6 RightStick",
+      "P6 Analog": "J6 B13",
+      "P6 A": "",
+      "P6 B": "",
+      "P6 R": "",
+      "P6 Trigger": "",
+      "P6 Shoot Offscreen": "",
+      "P6 Back": "",
+      "P6 Mouse Left": "",
+      "P6 Mouse Right": "",
+      "P7 Up": "J7 POV1U, X7 DpadUp",
+      "P7 Down": "J7 POV1D, X7 DpadDown",
+      "P7 Left": "J7 POV1L, X7 DpadLeft",
+      "P7 Right": "J7 POV1R, X7 DpadRight",
+      "P7 Start": "J7 B10, X7 Start",
+      "P7 Select": "J7 B9, X7 Back",
+      "P7 Square": "J7 B1, X7 X",
+      "P7 Cross": "J7 B2, X7 A",
+      "P7 Circle": "J7 B3, X7 B",
+      "P7 Triangle": "J7 B4, X7 Y",
+      "P7 L1": "J7 B5, X7 LeftShoulder",
+      "P7 R1": "J7 B6, X7 RightShoulder",
+      "P7 L2": "J7 B7, X7 LeftTrigger",
+      "P7 R2": "J7 B8, X7 RightTrigger",
+      "P7 L3": "J7 B11, X7 LeftStick",
+      "P7 R3": "J7 B12, X7 RightStick",
+      "P7 Analog": "J7 B13",
+      "P7 A": "",
+      "P7 B": "",
+      "P7 R": "",
+      "P7 Trigger": "",
+      "P7 Shoot Offscreen": "",
+      "P7 Back": "",
+      "P7 Mouse Left": "",
+      "P7 Mouse Right": "",
+      "P8 Up": "J8 POV1U, X8 DpadUp",
+      "P8 Down": "J8 POV1D, X8 DpadDown",
+      "P8 Left": "J8 POV1L, X8 DpadLeft",
+      "P8 Right": "J8 POV1R, X8 DpadRight",
+      "P8 Start": "J8 B10, X8 Start",
+      "P8 Select": "J8 B9, X8 Back",
+      "P8 Square": "J8 B1, X8 X",
+      "P8 Cross": "J8 B2, X8 A",
+      "P8 Circle": "J8 B3, X8 B",
+      "P8 Triangle": "J8 B4, X8 Y",
+      "P8 L1": "J8 B5, X8 LeftShoulder",
+      "P8 R1": "J8 B6, X8 RightShoulder",
+      "P8 L2": "J8 B7, X8 LeftTrigger",
+      "P8 R2": "J8 B8, X8 RightTrigger",
+      "P8 L3": "J8 B11, X8 LeftStick",
+      "P8 R3": "J8 B12, X8 RightStick",
+      "P8 Analog": "J8 B13",
+      "P8 A": "",
+      "P8 B": "",
+      "P8 R": "",
+      "P8 Trigger": "",
+      "P8 Shoot Offscreen": "",
+      "P8 Back": "",
+      "P8 Mouse Left": "",
+      "P8 Mouse Right": "",
+      "Reset": "",
+      "Previous Disc": "",
+      "Next Disc": "",
+      "Disc Swap": ""
     },
     "PlayStation Arcade Panel": {
       "P1 Up": "Up, J1 POV1U, X1 DpadUp, X1 LStickUp",
@@ -68,6 +238,22 @@
       "P1 Button 6": "D, J1 B6, X1 RightShoulder",
       "P1 Trigger": "WMouse L",
       "P1 Reload": "WMouse R",
+      "P1 Gear Up": "W",
+      "P1 Gear Down": "Q",
+      "P1 Handbrake": "Space",
+      "P1 View": "F",
+      "P1 Horn": "H",
+      "P1 Music Next": "",
+      "P1 Music Previous": "",
+      "P1 Select": "RightShift",
+      "P1 Select Up": "",
+      "P1 Select Down": "",
+      "P1 Select Left": "",
+      "P1 Select Right": "",
+      "P1 Enter": "Enter",
+      "P1 Sensor": "",
+      "P1 GSR Increase": "",
+      "P1 GSR Decrease": "",
       "P2 Up": "J2 POV1U, X2 DpadUp, X2 LStickUp",
       "P2 Down": "J2 POV1D, X2 DpadDown, X2 LStickDown",
       "P2 Left": "J2 POV1L, X2 DpadLeft, X2 LStickLeft",
@@ -82,6 +268,22 @@
       "P2 Button 6": "J2 B6, X2 RightShoulder",
       "P2 Trigger": "",
       "P2 Reload": "",
+      "P2 Gear Up": "",
+      "P2 Gear Down": "",
+      "P2 Handbrake": "",
+      "P2 View": "",
+      "P2 Horn": "",
+      "P2 Music Next": "",
+      "P2 Music Previous": "",
+      "P2 Select": "",
+      "P2 Select Up": "",
+      "P2 Select Down": "",
+      "P2 Select Left": "",
+      "P2 Select Right": "",
+      "P2 Enter": "",
+      "P2 Sensor": "",
+      "P2 GSR Increase": "",
+      "P2 GSR Decrease": "",
       "P3 Up": "J3 POV1U, X3 DpadUp, X3 LStickUp",
       "P3 Down": "J3 POV1D, X3 DpadDown, X3 LStickDown",
       "P3 Left": "J3 POV1L, X3 DpadLeft, X3 LStickLeft",
@@ -96,6 +298,22 @@
       "P3 Button 6": "J3 B6, X3 RightShoulder",
       "P3 Trigger": "",
       "P3 Reload": "",
+      "P3 Gear Up": "",
+      "P3 Gear Down": "",
+      "P3 Handbrake": "",
+      "P3 View": "",
+      "P3 Horn": "",
+      "P3 Music Next": "",
+      "P3 Music Previous": "",
+      "P3 Select": "",
+      "P3 Select Up": "",
+      "P3 Select Down": "",
+      "P3 Select Left": "",
+      "P3 Select Right": "",
+      "P3 Enter": "",
+      "P3 Sensor": "",
+      "P3 GSR Increase": "",
+      "P3 GSR Decrease": "",
       "P4 Up": "J4 POV1U, X4 DpadUp, X4 LStickUp",
       "P4 Down": "J4 POV1D, X4 DpadDown, X4 LStickDown",
       "P4 Left": "J4 POV1L, X4 DpadLeft, X4 LStickLeft",
@@ -110,6 +328,22 @@
       "P4 Button 6": "J4 B6, X4 RightShoulder",
       "P4 Trigger": "",
       "P4 Reload": "",
+      "P4 Gear Up": "",
+      "P4 Gear Down": "",
+      "P4 Handbrake": "",
+      "P4 View": "",
+      "P4 Horn": "",
+      "P4 Music Next": "",
+      "P4 Music Previous": "",
+      "P4 Select": "",
+      "P4 Select Up": "",
+      "P4 Select Down": "",
+      "P4 Select Left": "",
+      "P4 Select Right": "",
+      "P4 Enter": "",
+      "P4 Sensor": "",
+      "P4 GSR Increase": "",
+      "P4 GSR Decrease": "",
       "Service": "D9",
       "Test": "F2"
     }
@@ -148,6 +382,62 @@
         "ButtonBindPositive": "",
         "ButtonBindNegative": ""
       },
+      "P1 Twist": {
+        "Value": "X1 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 I": {
+        "Value": "X1 RightTrigger Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 II": {
+        "Value": "X1 LeftTrigger Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Gun X": {
+        "Value": "WMouse X",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Gun Y": {
+        "Value": "WMouse Y",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Mouse X": {
+        "Value": "RMouse X",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Mouse Y": {
+        "Value": "RMouse Y",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
       "P2 Left Stick X": {
         "Value": "X2 LeftThumbX Axis",
         "Mult": 1.0,
@@ -175,6 +465,566 @@
         "Deadzone": 0.1,
         "ButtonBindPositive": "",
         "ButtonBindNegative": ""
+      },
+      "P2 Twist": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 I": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 II": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Mouse X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Mouse Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Left Stick X": {
+        "Value": "X3 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Left Stick Y": {
+        "Value": "X3 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Right Stick X": {
+        "Value": "X3 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Right Stick Y": {
+        "Value": "X3 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Twist": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 I": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 II": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Mouse X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Mouse Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Left Stick X": {
+        "Value": "X4 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Left Stick Y": {
+        "Value": "X4 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Right Stick X": {
+        "Value": "X4 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Right Stick Y": {
+        "Value": "X4 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Twist": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 I": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 II": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Mouse X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Mouse Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Left Stick X": {
+        "Value": "X5 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Left Stick Y": {
+        "Value": "X5 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Right Stick X": {
+        "Value": "X5 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Right Stick Y": {
+        "Value": "X5 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Twist": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 I": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 II": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Mouse X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P5 Mouse Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Left Stick X": {
+        "Value": "X6 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Left Stick Y": {
+        "Value": "X6 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Right Stick X": {
+        "Value": "X6 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Right Stick Y": {
+        "Value": "X6 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Twist": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 I": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 II": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Mouse X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P6 Mouse Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Left Stick X": {
+        "Value": "X7 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Left Stick Y": {
+        "Value": "X7 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Right Stick X": {
+        "Value": "X7 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Right Stick Y": {
+        "Value": "X7 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Twist": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 I": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 II": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Mouse X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P7 Mouse Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Left Stick X": {
+        "Value": "X8 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Left Stick Y": {
+        "Value": "X8 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Right Stick X": {
+        "Value": "X8 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Right Stick Y": {
+        "Value": "X8 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Twist": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 I": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 II": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 L": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Mouse X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P8 Mouse Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
       }
     },
     "PlayStation Arcade Panel": {
@@ -187,6 +1037,216 @@
       },
       "P1 Gun Y": {
         "Value": "WMouse Y",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Steering": {
+        "Value": "X1 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.05,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Accelerator": {
+        "Value": "X1 RightTrigger Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Brake": {
+        "Value": "X1 LeftTrigger Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Clutch": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Trackball X": {
+        "Value": "RMouse X",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Trackball Y": {
+        "Value": "RMouse Y",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Steering": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Accelerator": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Brake": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Clutch": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Trackball X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Trackball Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Steering": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Accelerator": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Brake": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Clutch": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Trackball X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P3 Trackball Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Gun X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Gun Y": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Steering": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Accelerator": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Brake": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Clutch": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Trackball X": {
+        "Value": "",
+        "Mult": 1.0,
+        "Deadzone": 0.0,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P4 Trackball Y": {
+        "Value": "",
         "Mult": 1.0,
         "Deadzone": 0.0,
         "ButtonBindPositive": "",
