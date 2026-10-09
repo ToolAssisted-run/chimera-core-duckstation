@@ -1,0 +1,333 @@
+# Building the DuckStation core
+
+This repository builds DuckStation (the PlayStation) as a sandboxed guest for
+Chimera. The result is one file, `duckstation.chimeraCore`, which Chimera
+loads. The steps below are the ones `.github/workflows/chimera.yml` runs on a
+fresh clone on a public Ubuntu runner. Cores are built on Linux; the same
+package file runs on Linux and on Windows, because the guest inside it is run
+by Chimera's sandbox (miniBox) on either.
+
+Names used below:
+
+- `<chimera>` - a checkout of https://github.com/ToolAssisted-run/chimera.
+- `<minibox>` - `<chimera>/extern/chimera-common-minibox`, the miniBox
+  submodule: the sandbox host and the guest toolchain.
+
+The commands use two shell variables for them. Both must be absolute paths.
+Commands run from the root of this repository unless they say otherwise.
+
+```sh
+chimera=/absolute/path/to/chimera
+mb="$chimera/extern/chimera-common-minibox"
+```
+
+## Requirements
+
+**Operating system.** Ubuntu, x86-64. CI builds on GitHub's `ubuntu-latest`.
+
+**Packages.**
+
+```sh
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  meson ninja-build build-essential cmake pkg-config python3 bison flex \
+  python3-mako python3-packaging curl xz-utils \
+  mono-complete xvfb \
+  libgl1-mesa-dev libx11-dev libxext-dev libasound2-dev
+```
+
+`bison`, `flex`, `python3-mako` and `python3-packaging` are for the guest
+Mesa. `cmake`, `mono-complete`, `xvfb` and the `lib*-dev` packages are for
+building Chimera and running the frontend gate; the core and the core gate do
+not need them. `libegl-dev` is needed only for the GPU checks
+(`-Dgl_bridge=true`, below).
+
+**Toolchains.**
+
+- C and C++: the gcc and g++ of `build-essential`. Built and gated here with
+  GCC 14.2 and GCC 13.3. Upstream builds with clang only; under GCC this
+  build passes `-fpermissive` (`meson.build` says where and why).
+- .NET SDK 8.0, Mono and Xvfb, for Chimera and the frontend gate only.
+- No Rust, no clang, no cmake for the core itself: the build is one
+  `meson.build` over a curated list of upstream's sources.
+
+**What the scripts fetch or build themselves.**
+
+- `waterbox/setup-mesa.sh` downloads one file,
+  `https://archive.mesa3d.org/mesa-24.0.9.tar.xz`, checks it against a pinned
+  SHA-256 and stops if it does not match. The tarball is kept in
+  `build/deps/` (or `$CHIMERA_DEPS_DIR`; `MESA_TARBALL=<file>` uses one you
+  already have) and unpacked into `build/mesa/`. From it the script
+  cross-builds Mesa for the guest: softpipe behind the gallium OSMesa front
+  end, static, no LLVM. The output is `build/mesa/build-guest2/`.
+- If the system has no `meson` with the Python modules `mako` and
+  `packaging`, the same script makes a private venv at
+  `$HOME/.cache/chimera-mesa-build-venv` (or `$MESA_BUILD_VENV`). With the
+  packages above it does not.
+- Everything else is source: this repository and its three submodules,
+  `extern/duckstation`, `extern/zlib` and `extern/zstd`. Upstream's other
+  dependencies come from its own tree (`extern/duckstation/dep`). Its
+  per-title database (`data/resources/gamedb.yaml`) is compiled into the
+  core.
+
+## Get the sources
+
+```sh
+git clone https://github.com/ToolAssisted-run/chimera-core-duckstation.git
+cd chimera-core-duckstation
+git submodule update --init
+```
+
+`extern/duckstation` is pinned to `14ab642`, the last commit upstream offered
+under the GPL-3.0. **The pin does not move**, and nothing later may be copied
+in: `docs/PLAN.md` ("The pin") says why.
+
+Chimera, with the miniBox submodule:
+
+```sh
+git clone https://github.com/ToolAssisted-run/chimera.git "$chimera"
+git -C "$chimera" submodule update --init extern/chimera-common-minibox
+```
+
+That is enough for the core, the package and the core gate. The frontend gate
+and the contract tests need Chimera built, and for that:
+
+```sh
+git -C "$chimera" submodule update --init --recursive
+```
+
+Where the scripts look when they are not told:
+
+| Script | Option | Otherwise |
+| --- | --- | --- |
+| `meson.build` | `-Dminibox_dir=<minibox>` | a Chimera checkout beside this repository or beside its parent, else an error |
+| `waterbox/setup-mesa.sh`, `waterbox/setup-guest.sh` | `-m <minibox>` | `$MINIBOX_DIR`, else the same two places, else an error |
+| `waterbox/build-package.sh` | `-r <chimera>`, `-m <minibox>` | Chimera: the same two places. miniBox: `$MINIBOX_DIR`, else `<chimera>/extern/chimera-common-minibox` |
+| `waterbox/run-gate.sh` | `$CHIMERA_ROOT` | the same two places, else the `engine:project` check says SKIP |
+| `waterbox/tests/run-frontend.sh` | `--chimera-root <chimera>` | `$CHIMERA_ROOT`, else the same two places |
+
+Nothing is guessed from the home directory. Pass the paths, as CI does.
+
+## Build miniBox
+
+The host library, and the C++ guest toolchain:
+
+```sh
+[ -f "$mb/build/meson-linux/build.ninja" ] || meson setup "$mb/build/meson-linux" "$mb"
+meson compile -C "$mb/build/meson-linux"
+[ -f "$mb/build/meson-cpp/build.ninja" ] || meson setup "$mb/build/meson-cpp" "$mb" -Dguest_cpp=true
+meson compile -C "$mb/build/meson-cpp"
+```
+
+`build/meson-cpp/guest-sysroot` is the sysroot `setup-mesa.sh` and
+`setup-guest.sh` require. `run-wbx` links miniBox's host library from the
+same build.
+
+## Build the core
+
+### Patches
+
+`extern/duckstation` is pinned to pristine upstream. The 11 numbered patch
+files in `patches/` are applied to it by `waterbox/apply-patches.sh`, in
+file-name order. There is no separate step: `meson.build` runs the script at
+configure time, so both `meson setup build/meson-native` and `setup-guest.sh`
+apply them. The script applies the whole series or none; run by hand on a
+patched tree it prints `already applied: all 11 patches`. `git status` then
+shows `extern/duckstation` as modified, which is expected.
+
+### The guest Mesa
+
+Once per checkout (and again when miniBox's guest toolchain changes):
+
+```sh
+bash waterbox/setup-mesa.sh -m "$mb"
+```
+
+It needs `bash`, and the network the first time. `MESA_BUILD_CONFIGURE_ONLY=1`
+checks the recipe without compiling. Without a guest Mesa the core can still
+be built, with the software renderer only (`MESA_GUEST_DIR=` for
+`build-package.sh`, or no `-Dmesa_guest_dir` for `setup-guest.sh`); that is
+not the published package.
+
+### The native reference and the sandbox driver
+
+The same sources compiled for the host, as `run-native`, and `run-wbx`, which
+runs a `core.wbx` in miniBox. The gate compares the two.
+
+```sh
+meson setup build/meson-native -Dminibox_dir="$mb"
+ninja -C build/meson-native
+```
+
+### The guest core
+
+```sh
+sh waterbox/setup-guest.sh -m "$mb" -- -Dmesa_guest_dir="$PWD/build/mesa"
+ninja -C build/meson-guest core.wbx
+```
+
+`setup-guest.sh` writes the cross file for miniBox's musl toolchain
+(`build/guest-cross.ini`) and configures `build/meson-guest`.
+`build-package.sh` does this step itself when `build/meson-guest` has no
+`build.ninja`; an existing directory keeps the options it was configured
+with.
+
+### Build options
+
+`meson_options.txt` describes each. In short:
+
+| Option | Default | What it is for |
+| --- | --- | --- |
+| `minibox_dir` | (found) | the miniBox checkout |
+| `mesa_guest_dir` | empty | a guest Mesa: with one, the hardware renderer is built |
+| `gl_bridge` | false | native builds only: `run-wbx` gets the GPU bridge's host half (needs `libegl-dev`), for the gate's GPU checks |
+| `host_clock` | false | diagnostic, native only: upstream's host clock, the control for the `clock:virtual` check |
+| `recompiler` | false | upstream's two code generators; not built, not gated (the interpreter runs a 3D race at eight times real speed) |
+
+The GPU checks want a third build directory:
+
+```sh
+meson setup build/meson-gl -Dminibox_dir="$mb" -Dgl_bridge=true
+ninja -C build/meson-gl run-wbx
+```
+
+## Build the package
+
+```sh
+./waterbox/build-package.sh -m "$mb" -r "$chimera"
+```
+
+It builds `core.wbx` if needed, checks it with miniBox's `check-wbx.sh`, and
+writes `$chimera/build/Cores/duckstation.chimeraCore`: `core.wbx`,
+`waterbox.config`, `default_keybinds.json`, `file_slots.json`, the licence
+texts of every component (`waterbox/package-licenses.json`) and `build.json`,
+which records what built it. The package is written twice and must hash the
+same both times.
+
+A package built by hand is stamped `<commit>+local`, or `<commit>-dirty+local`
+with changes in the tree. CI stamps the commit (`CORE_VERSION`).
+
+## Install it into Chimera
+
+`build-package.sh -r "$chimera"` has already put the package in the cores
+folder of a Chimera source checkout. For a release bundle, copy
+`duckstation.chimeraCore` into the `Cores` folder beside `Chimera.exe` (or
+the folder set in File > Core Manager). Chimera downloads nothing.
+
+## Run the gates
+
+### The core gate
+
+```sh
+CHIMERA_ROOT="$chimera" ./waterbox/run-gate.sh
+```
+
+Native against sandbox, check by check. It must end with `0 failed`, and a
+SKIP is not a pass. What runs depends on what content the machine has:
+
+| With | Named by | Checks |
+| --- | --- | --- |
+| nothing | - | `build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry` |
+| a BIOS | `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS` | `bios:compare`, `bios:rerecord`, `bios:rewind`, `bios:deterministic`, `clock:virtual`, `input:reaches`, `lag:counted`, `console:reset`, `cards:export`, `cards:import`, `cards:refused`, and with a guest Mesa `gl:softpipe`, `gl:machine`, `gl:scale`, `gl:rerecord`, `gl:rewind` |
+| a disc | `tests/roms/NHL Blades of Steel 2000 (USA).cue` and its image, or `CHIMERA_PS1_DISC` | `cue:alone`, `disc:compare`, `disc:rerecord`, `disc:rewind`, `disc:nameless` |
+| Chimera | `$CHIMERA_ROOT` with `build/meson-linux/chimera-run` and the package installed | `engine:project` |
+| a 3D game | `tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue` and its image, or `CHIMERA_PS1_GAME3D` | `play:compare`, `play:rewind`; with both discs, `disc:swap` |
+| a GL context | `build/meson-gl/run-wbx` (`-Dgl_bridge=true`) | `gpu:bridge`, `gpu:machine`, `gpu:picture-after-load`, `gpu:rerecord`, `gpu:play`, `gpu:enhancements` |
+
+All 35 take about eight minutes on a 20-thread desktop. The GPU checks draw
+on whatever this machine's EGL hands out and name it; on a machine with no
+card that is llvmpipe, and what they prove is the bridge, not a card.
+`docs/PLAN.md` ("The gate") has what each check compares and how each was
+seen to fail.
+
+The content is named, never "the first file in the folder". A BIOS and the
+games are yours to provide; `tests/roms/` is ignored by git wholesale.
+
+### The frontend gate
+
+```sh
+./waterbox/tests/run-frontend.sh --chimera-root "$chimera"
+```
+
+The package through the real frontend, headless under Mono and Xvfb:
+`menu:frontend`, `settings:frontend`, `disc:frontend`, `keybinds`. It needs
+Chimera built (below), the package installed, `run-native`, and the BIOS;
+`disc:frontend` needs the disc. Without a BIOS all four say SKIP. Its scratch
+is `waterbox/tests/work/`.
+
+### Chimera's contract tests
+
+They need no content. With Chimera built:
+
+```sh
+cd "$chimera"
+CHIMERA_CORES_DIR="$chimera/build/Cores" dotnet test \
+  source/gui/Chimera.Tests.Client.Common/Chimera.Tests.Client.Common.csproj -c Release \
+  --filter "FullyQualifiedName~InstalledCorePackagesTests|FullyQualifiedName~MnemonicUniquenessTests"
+```
+
+### Building Chimera for them
+
+```sh
+cd "$chimera"
+meson setup build/meson-linux --prefix "$PWD/build" --libdir dll
+meson compile -C build/meson-linux && meson install -C build/meson-linux
+dotnet build source/gui/Chimera.sln -c Release
+```
+
+### What CI proves
+
+No BIOS and no game may be on a public runner, so CI runs the four checks of
+the first row, the contract tests, and the frontend gate with every check
+skipped. That proves the build from a fresh clone, the sandbox starting the
+guest, the refusal without a BIOS, and the package. It proves nothing about
+the console. Run the gates with your own content before a commit that touches
+the machine, and say in the commit what ran.
+
+## Files the core needs at run time
+
+- **A BIOS**, always: one of the 20 releases `waterbox.config` lists by
+  SHA-1, chosen by the `bios` setting (default `v4.1-a`, the SCPH-7001's).
+  Chimera's project wizard asks for the file. Outside the frontend, the two
+  runners take it as a file named `bios` in the work folder.
+- **A disc**, optionally: a `.cue` with the files it names, a `.chd`, a
+  `.bin`, `.img` or `.iso` of one data track, a `.pbp` or an `.ecm` - or a
+  program (`.exe`, `.psexe`, `.ps-exe`) in place of one. Up to eight discs go
+  in the Disc slot (`waterbox/file_slots.json`). With none the console boots
+  to its own menu.
+- **Memory cards** are part of the machine and of every savestate; they come
+  in and go out through Chimera's save data, as `memcard1.mcd` and
+  `memcard2.mcd`.
+
+A work folder for `run-native` and `run-wbx` holds what the frontend would
+mount: `bios`, the disc files under their own names, `slots`
+(`{"disc": ["game.cue"]}`) and optionally `settings` (flat JSON;
+`{"verbose": true}` turns upstream's log on).
+
+```sh
+build/meson-native/run-native <folder> --frames 600 --screenshot out.tga
+build/meson-native/run-wbx build/meson-guest/core.wbx <folder> --frames 600
+```
+
+## Troubleshooting
+
+- **`apply-patches.sh` fails at configure.** `extern/duckstation` holds
+  something that is neither the pin nor the whole series: `git -C
+  extern/duckstation checkout . && git -C extern/duckstation clean -fd`, then
+  configure again.
+- **`build:fresh` fails.** A source is newer than `core.wbx`: rebuild the
+  guest. The gate will not compare yesterday's core.
+- **A flag changed and nothing rebuilt.** A change to the guest sysroot or
+  to a cross-file flag rebuilds no object. Delete `build/meson-guest` and
+  configure again.
+- **`guest Mesa not built`.** Run `setup-mesa.sh`, or build the
+  software-only core with `MESA_GUEST_DIR=`.
+- **The sandbox dies.** miniBox writes the guest's last words to
+  `minibox-diag.log` in the current directory. A syscall number there is a
+  call the sandbox does not have; `docs/PLAN.md` ("Sharp edges") lists the
+  ones this port met.
+- **`run-wbx` under a memory cap.** The gate runs every guest through
+  `systemd-run --user --scope -p MemoryMax=8G` when it can. Do the same by
+  hand: a guest that runs away should not take the machine with it.
+- **The GPU checks SKIP.** `build/meson-gl/run-wbx` is missing, or EGL gave
+  no context.

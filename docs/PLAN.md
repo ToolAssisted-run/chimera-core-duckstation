@@ -78,9 +78,11 @@ the write protection upstream puts on RAM pages holding compiled code (see
 **What must the user bring?** A PlayStation BIOS. Upstream recognises the
 free OpenBIOS as well (`bios.cpp`), which is what a public runner could boot.
 
-**What can a gate run on a public runner?** Not decided yet. The BIOS is
-somebody's and so is every game; OpenBIOS and a test program this repository
-builds are the route to machine legs in CI.
+**What can a gate run on a public runner?** Today, nothing of the console:
+the BIOS is somebody's and so is every game, so CI proves the build, the
+package and the refusal without a BIOS (see "On a runner"). OpenBIOS and a
+test program this repository builds are the route to machine legs in CI, and
+have not been tried.
 
 **How big is it?** Small. 2 MB of RAM (8 MB on a development console), 1 MB
 of VRAM, 512 KB of BIOS. The first sandboxed runs used a layout borrowed from
@@ -121,7 +123,10 @@ and declared.
   times real time in the sandbox (see "A game played"). The code generators
   stay unbuilt, and with them the question of write protection.
 - **M8 - the arcade boards** (ArcadeDuck; see below).
-- **M9 - documents, CI, publishing.**
+- **M9 - documents, CI, publishing.** The documents and the workflow are
+  written (2026-10-09) and the workflow's steps have been run here from a
+  fresh clone (see "On a runner"); it has never run on GitHub, because there
+  is no repository there yet - that is the owner's to create.
 
 ## How it is put together
 
@@ -581,6 +586,47 @@ The interpreter runs this game's boot at about six times real time on this
 machine, sandboxed, so speed is not what the code generators are needed for
 yet. A 3D scene has not been measured.
 
+## On a runner (2026-10-09)
+
+`.github/workflows/chimera.yml` is one job: Chimera checked out at `main`
+and built, miniBox and the guest toolchain, the guest Mesa, the native
+reference, the package stamped with the commit, the core gate, Chimera's
+contract tests against the package, the frontend gate, the artifact - and
+then Chimera's reusable publish workflow.
+
+**What it proves is the first tier and no more.** With no BIOS the core gate
+runs `build:fresh`, `keybinds`, `nobios:refuses` and `gamedb:entry` and says
+SKIP 31 times; the frontend gate says SKIP four times and is run all the
+same, so that the script is known to find the frontend, the package and the
+reference. The contract tests need no content. The workflow's header says
+this, and so does every skipped line.
+
+**It has not run on GitHub.** The steps were run here instead, the way a
+runner would: a fresh clone of this repository in a scratch folder, Chimera
+cloned inside it at `chimera-checkout`, `HOME` pointing at an empty folder,
+and GCC 13.3 first on the path - the compiler of `ubuntu-latest`, where
+everything before today had been built with this machine's GCC 14.2. miniBox
+and its guest toolchain, Mesa, both flavors and the package built with no
+change to any script; the gate said 4 ok, 0 failed, 31 skipped, and the
+tree was clean but for the patched submodule. Not covered by that run: the
+apt package list (this machine already has everything), the build of Chimera
+and its .NET solution, the contract tests against that exact package, and
+the publish job.
+
+**The compiler is part of the package, so the GCC 13 build was gated with
+content too**: in that same fresh clone, with `build/meson-gl` added and the
+BIOS and both games named by their environment variables, the core gate
+said 35 ok, 0 failed, 0 skipped - the count the GCC 14 build has. (Its
+`engine:project` check ran the GCC 13 package through the engine built in
+the other checkout; its GPU checks drew on llvmpipe.)
+
+**The pin is fetched from upstream's repository.** `extern/duckstation`
+names `stenzek/duckstation` and a commit its history still holds. A
+repository whose owner relicensed it may one day rewrite or remove that
+history, and a core whose pin can no longer be fetched cannot be built. A
+mirror of the pinned commit under the project's own account would end the
+dependency; creating one is the owner's (see "What is the owner's").
+
 ## ArcadeDuck (chimera#221, second half)
 
 `StillJC/ArcadeDuck` (GPL-3.0, first published 2026-09-26, six commits, no
@@ -649,6 +695,10 @@ Not yet asked, and decided provisionally so the work could go on:
   to follow a setting - a declaration every core could use, and so a change
   to Chimera's design and not something this core may special-case. Not
   offered until that is decided.
+
+- **A mirror of the pin.** The submodule fetches `14ab642` from upstream's
+  own repository, which can stop offering it. Suggested: a fork under the
+  project's account holding that commit, and the submodule pointed at it.
 
 Needing a decision before they happen: creating the public repository, the
 roster and README rows, a comment on chimera#221, and closing it.
