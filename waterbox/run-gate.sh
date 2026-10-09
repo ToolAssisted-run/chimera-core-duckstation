@@ -19,17 +19,23 @@
 # A check whose content is missing reports SKIP and says what it would have
 # proven. A SKIP is not a pass.
 #
-# Usage: ./run-gate.sh [-n <native build dir>] [-g <guest build dir>]
+#   with a GPU     build/meson-gl (meson setup -Dgl_bridge=true) and a GL
+#                   context on this machine: the hardware renderer through the
+#                   GPU bridge
+#
+# Usage: ./run-gate.sh [-n <native build dir>] [-g <guest build dir>] [-b <bridge build dir>]
 set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 nat="$root/build/meson-native"
 gst="$root/build/meson-guest"
-while getopts "n:g:" opt; do
+brg="$root/build/meson-gl"
+while getopts "n:g:b:" opt; do
 	case "$opt" in
 		n) nat="$OPTARG" ;;
 		g) gst="$OPTARG" ;;
+		b) brg="$OPTARG" ;;
 		*) exit 2 ;;
 	esac
 done
@@ -87,6 +93,16 @@ wbx() {
 	fi
 }
 native() { "$nat/run-native" "$@"; }
+# the sandbox runner that carries the GPU bridge's host half, asked for a GPU.
+# $GPU_ENV is extra environment for one call (the untold control).
+wbxgpu() {
+	if command -v systemd-run >/dev/null 2>&1 && systemd-run --user --scope --quiet true 2>/dev/null; then
+		systemd-run --user --scope --quiet -p MemoryMax=8G -p MemorySwapMax=0 -E CHIMERA_GPU=1 ${GPU_ENV:+-E "$GPU_ENV"} \
+			"$brg/run-wbx" "$gst/core.wbx" "$@"
+	else
+		env CHIMERA_GPU=1 ${GPU_ENV:+"$GPU_ENV"} "$brg/run-wbx" "$gst/core.wbx" "$@"
+	fi
+}
 
 # a work folder: what the frontend would mount. <dir> [bios] [settings json]
 mkwork() {
@@ -157,7 +173,8 @@ disc="${CHIMERA_PS1_DISC:-}"
 
 if [ -z "$bios" ]; then
 	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted \
-		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind cue:alone \
+		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind \
+		gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord cue:alone \
 		disc:compare disc:rerecord disc:rewind disc:nameless engine:project; do
 		report "$leg" SKIP "needs a PlayStation BIOS: tests/roms/bios/PSX_4.1(A).bin, or CHIMERA_PS1_BIOS=<file>"
 	done
@@ -305,6 +322,80 @@ else
 		report "gl:rewind" PASS "kept at frame 120, restored at 260 and replayed: the straight run, picture included"
 	else
 		report "gl:rewind" FAIL "$(diff <(digests < "$work/gl1.300") "$work/gl.rw" | head -4 | tr '\n' ' ')"
+	fi
+fi
+
+# ---- the hardware renderer on a host's OpenGL, through the GPU bridge --------
+#
+# The same renderer, with its GL calls leaving the sandbox for a real context
+# (run-wbx built with -Dgl_bridge=true, which is the engine's host half in
+# miniature). What draws is whatever this machine's EGL hands out; the leg
+# names it. On a machine with no card that is llvmpipe, which is a fine place
+# to prove the BRIDGE and says nothing about a graphics card (docs/gates.md, E):
+# a real driver is measured by hand, on the card, and docs/PLAN.md has what it
+# said.
+if [ ! -x "$brg/run-wbx" ]; then
+	for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord; do
+		report "$leg" SKIP "needs a runner with the bridge's host half: meson setup build/meson-gl -Dminibox_dir=<miniBox> -Dgl_bridge=true"
+	done
+else
+	mkwork "$work/hw" "$bios" '{"renderer":"opengl-hw","verbose":true}'
+	hw_log="$(wbxgpu "$work/hw" --frames 300 2>&1 | plain)"
+	hw_driver="$(sed -n 's/^gpu bridge: \([0-9].*\)/\1/p' <<< "$hw_log" | head -1)"
+	if grep -q 'has no OpenGL in it' <<< "$hw_log"; then
+		for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord; do
+			report "$leg" SKIP "this core.wbx was built without a guest Mesa, and so without the GL device the bridge carries"
+		done
+	elif [ -z "$hw_driver" ]; then
+		for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord; do
+			report "$leg" SKIP "this machine gave the bridge no GL context: $(grep -m1 -i 'gpu bridge' <<< "$hw_log" | cut -c1-120)"
+		done
+	else
+		hw_gl="$(sed -n 's/.*GL_RENDERER: //p' <<< "$hw_log" | head -1)"
+		unhandled="$(grep -c 'opcodes this host has no case for' <<< "$hw_log")"
+		if [ -n "$hw_gl" ] && [ "$hw_gl" != "softpipe" ] && [ "$unhandled" -eq 0 ] && grep -q 'GPU_HW: Created HW framebuffer' <<< "$hw_log"; then
+			report "gpu:bridge" PASS "the renderer came up on the host's driver ($hw_gl) and every call it made was answered"
+		else
+			report "gpu:bridge" FAIL "GL_RENDERER [${hw_gl:-none}], unanswered-opcode reports: $unhandled"
+		fi
+
+		mkwork "$work/hw1" "$bios" '{"renderer":"opengl-hw"}'
+		wbxgpu "$work/hw1" --frames 500 2>/dev/null > "$work/hw.500"
+		[ -s "$work/sw.500" ] || wbx "$work/shell" --frames 500 2>/dev/null > "$work/sw.500"
+		if grep -q '^machineHash=' "$work/hw.500" && cmp -s <(machine_only < "$work/sw.500") <(machine_only < "$work/hw.500"); then
+			report "gpu:machine" PASS "500 frames drawn outside the sandbox: the processor, the sound and the polls are the software renderer's"
+		else
+			report "gpu:machine" FAIL "$(diff <(machine_only < "$work/sw.500") <(machine_only < "$work/hw.500") | head -4 | tr '\n' ' ')"
+		fi
+
+		# The console's VRAM is a texture on the card and in no state. The core is
+		# told before a state is taken and fetches it; after a load it gives it
+		# back, and the picture is the straight run's from the first frame. The
+		# control is the same rewind with the core left untold: then what comes
+		# back is what the card happened to hold, and the picture must differ - or
+		# this leg cannot tell a core that carries VRAM from one that does not.
+		# Frames 1100 and 1130 are both the menu, 3x the console's resolution.
+		mkwork "$work/hw3" "$bios" '{"renderer":"opengl-hw","internalResolution":"3x"}'
+		wbxgpu "$work/hw3" --frames 1140 2>/dev/null | digests > "$work/hw3.s"
+		wbxgpu "$work/hw3" --frames 1140 --rewind 1100:1130 2>/dev/null | digests > "$work/hw3.t"
+		GPU_ENV=CHIMERA_NO_STATE_SAVING=1 wbxgpu "$work/hw3" --frames 1140 --rewind 1100:1130 2>/dev/null | digests > "$work/hw3.u"
+		told_ok=no; cmp -s "$work/hw3.s" "$work/hw3.t" && [ -s "$work/hw3.s" ] && told_ok=yes
+		untold_differs=no; cmp -s "$work/hw3.s" "$work/hw3.u" || untold_differs=yes
+		untold_machine=no; cmp -s <(machine_only < "$work/hw3.s") <(machine_only < "$work/hw3.u") && untold_machine=yes
+		if [ "$told_ok" = yes ] && [ "$untold_differs" = yes ] && [ "$untold_machine" = yes ]; then
+			report "gpu:picture-after-load" PASS "at 3x, kept at 1100 and restored at 1130: every frame after the load is the straight run's; left untold, the picture is not and the machine still is"
+		else
+			report "gpu:picture-after-load" FAIL "told and straight $([ "$told_ok" = yes ] && echo agree || echo DIFFER); untold picture $([ "$untold_differs" = yes ] && echo differs || echo "is the SAME - the control shows nothing"); untold machine $([ "$untold_machine" = yes ] && echo same || echo DIFFERS)"
+		fi
+
+		# a load before every frame: the renderer is rebuilt 300 times
+		wbxgpu "$work/hw1" --frames 300 2>/dev/null | digests > "$work/hw.300"
+		wbxgpu "$work/hw1" --frames 300 --rerecord 2>/dev/null | digests > "$work/hw.rr"
+		if [ -s "$work/hw.300" ] && cmp -s "$work/hw.300" "$work/hw.rr"; then
+			report "gpu:rerecord" PASS "300 frames with a state saved and loaded around every one - a new context each time - and the straight run, picture included"
+		else
+			report "gpu:rerecord" FAIL "$(diff "$work/hw.300" "$work/hw.rr" | head -4 | tr '\n' ' ')"
+		fi
 	fi
 fi
 

@@ -137,16 +137,3 @@ std::unique_ptr<OpenGLContext> ChimeraCreateGLContext(const WindowInfo& wi, Erro
   }
   return context;
 }
-
-// No GPU bridge yet: the softpipe always draws (waterbox/gl-bridged.cpp will
-// replace these two when it exists).
-extern "C" bool chimera_gl_bridged()
-{
-  return false;
-}
-
-std::unique_ptr<OpenGLContext> ChimeraCreateBridgedGLContext(const WindowInfo& wi, Error* error)
-{
-  Error::SetStringView(error, "no GPU bridge was offered");
-  return nullptr;
-}

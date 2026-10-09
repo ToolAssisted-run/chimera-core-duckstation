@@ -158,7 +158,21 @@ if not recompiler
   driver_sources += files('waterbox/stubs/no-recompiler.cpp')
 endif
 if guest_gl
-  driver_sources += files('waterbox/gl-osmesa.cpp')
+  # The GPU bridge's guest half: a wrapper per GL entry point that hands the
+  # call to the host, and the context object upstream asks for. Compiled in
+  # whenever the GL device is, because it costs nothing until a host offers a
+  # callback - chimera_gl_bridged() is false and the softpipe draws.
+  # Generated from the SHARED table in miniBox, not from a list of our own:
+  # opcodes are indices into that master list, so what this core means by an
+  # opcode is what every other core and the frontend's host half mean.
+  gl_bridge_guest = custom_target('gl-bridge-guest',
+    output: ['gl-bridge-guest.cpp', 'gl-bridge-ops.h', 'gl-bridge-host.inc'],
+    input: files('waterbox/gl-entry-points.txt'),
+    command: [find_program('python3'), mb / 'source/gl/gen-gl-bridge.py',
+      ds_abs / 'dep/glad/include/glad/gl.h',
+      mb / 'source/gl/gl-entry-points.txt',
+      '@OUTDIR@', '--only', '@INPUT@'])
+  driver_sources += [files('waterbox/gl-osmesa.cpp', 'waterbox/gl-bridged.cpp'), gl_bridge_guest[0]]
 endif
 
 if meson.is_cross_build()
@@ -217,9 +231,36 @@ else
 
   mbhost = mb / 'build/meson-cpp/source/host'
 
+  # The GPU bridge's HOST half (-Dgl_bridge=true): a real GL context outside the
+  # sandbox, and the dispatcher a guest reaches it through. It is the only part
+  # of this repository that depends on the machine it runs on, so it is opt-in
+  # and it lives in the runner rather than in the core package - a .chimeraCore
+  # is a guest binary, and this is host code by definition. The frontend has
+  # its own (the engine's); this one exists so the gate can drive a GPU.
+  bridge_sources = []
+  bridge_args = []
+  bridge_deps = []
+  if get_option('gl_bridge')
+    gl_bridge_host = custom_target('gl-bridge-host',
+      output: ['gl-bridge-host.inc', 'gl-bridge-ops.h', 'gl-bridge-guest.cpp'],
+      command: [find_program('python3'), mb / 'source/gl/gen-gl-bridge.py',
+        ds_abs / 'dep/glad/include/glad/gl.h',
+        mb / 'source/gl/gl-entry-points.txt', '@OUTDIR@'])
+
+    bridge_sources = [files('waterbox/gl-host.c', ds / 'dep/glad/src/gl.c'), gl_bridge_host[0]]
+    bridge_args = ['-DCHIMERA_GL_BRIDGE',
+      '-I' + meson.current_source_dir() / 'waterbox',
+      '-I' + mb / 'source/gl',
+      '-I' + ds_abs / 'dep/glad/include']
+    # the generated ops header lands in the build dir
+    bridge_args += ['-I' + meson.current_build_dir()]
+    bridge_deps = [meson.get_compiler('c').find_library('EGL', required: true)]
+  endif
+
   # The sandbox runner is not part of the machine: it drives core.wbx from
   # outside, so it wants neither the machine's includes nor its shim.
-  executable('run-wbx', files('waterbox/run-wbx.c'),
-    c_args: ['-I' + mb / 'source/host'],
+  executable('run-wbx', files('waterbox/run-wbx.c') + bridge_sources,
+    c_args: ['-I' + mb / 'source/host'] + bridge_args,
+    dependencies: bridge_deps,
     link_args: [mbhost / 'libminiboxhost.so', '-Wl,-rpath,' + mbhost])
 endif

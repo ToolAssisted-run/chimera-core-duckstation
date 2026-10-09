@@ -169,7 +169,11 @@ static int64_t core_domain_size(int i) { return g_GetMemoryDomainSize(i); }
 static void take_state(membuf *into)
 {
 	mb_return r;
-	if (g_StateSaving) g_StateSaving();
+	/* CHIMERA_NO_STATE_SAVING=1 leaves the core untold, as it does in the
+	 * engine: the control a leg about what StateSaving carries is held to. */
+	static int untold = -1;
+	if (untold < 0) { const char *e = getenv("CHIMERA_NO_STATE_SAVING"); untold = (e && e[0] && e[0] != '0'); }
+	if (g_StateSaving && !untold) g_StateSaving();
 	into->len = 0;
 	wbx_save_state(g_host, mem_write, (uintptr_t)into, &r);
 	if (r.error_message[0]) { fprintf(stderr, "save_state: %s\n", r.error_message); exit(1); }
@@ -221,7 +225,7 @@ int main(int argc, char **argv)
 	/* matches waterbox.config memoryLayoutMiB: sbrk, sealed, invisible, plain,
 	 * mmap. Keep the two in step - a driver with more room than the frontend
 	 * gives is a gate that passes where a user's run dies. */
-	mb_memory_layout_template layout = { 512u << 20, 16u << 20, 64u << 20, 16u << 20, 1024u << 20 };
+	mb_memory_layout_template layout = { 512u << 20, 16u << 20, 192u << 20, 16u << 20, 2048u << 20 };
 	freader fr = { wf };
 	mb_return r;
 	wbx_create_host(&layout, "core.wbx", file_read, (uintptr_t)&fr, &r);

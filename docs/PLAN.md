@@ -109,10 +109,11 @@ and declared.
   declarations, `build-package.sh`, Chimera's contract tests, and a project
   through `chimera-run`. The frontend gate under Mono is not written.
 - **M6 - the hardware renderer.** PARTLY, 2026-10-09: it runs inside the
-  sandbox on Mesa softpipe, at 1x to 8x, with states and rewind. Not yet: the
-  GPU bridge, which is what makes it usable (softpipe draws the BIOS menu at
-  25 frames a second at 1x and 6 at 2x), and the enhancements beyond
-  resolution - PGXP, true colour, texture filtering, widescreen - as settings.
+  sandbox on Mesa softpipe and, through the GPU bridge, on a host's OpenGL,
+  at 1x to 8x, with states, rewind and an exact picture after a load. Not
+  yet: a measurement on a real graphics card (everything bridged so far was
+  drawn by llvmpipe), and the enhancements beyond resolution - PGXP, true
+  colour, texture filtering, widescreen - as settings.
 - **M7 - speed**: the code generators, if the interpreter is not enough.
 - **M8 - the arcade boards** (ArcadeDuck; see below).
 - **M9 - documents, CI, publishing.**
@@ -243,6 +244,68 @@ the same mistake put back on purpose fails `disc:rewind`.
 carries the renderer whole: `gl:rerecord` and `gl:rewind` compare the picture
 too and pass.
 
+## The GPU bridge (2026-10-09)
+
+`opengl-hw` is the same renderer with its GL calls leaving the sandbox
+(chimera docs/gpu-bridge.md). What this core had to do:
+
+- **The guest half** is generated from miniBox's shared table for the 122
+  entry points this build names (`waterbox/gl-entry-points.txt`: every `glad_gl*`
+  symbol upstream's objects reference that the table has, plus `glGetStringi`,
+  which only glad itself calls and which a scan of upstream's objects missed).
+  Four OpenGL ES names upstream references are not in the table and are never
+  called on desktop GL. `waterbox/gl-bridged.cpp` is the context object.
+- **No mapped buffers** (patch 0009): the stream buffers take upstream's
+  `glBufferData` path and pixel buffer objects are off when bridged, because
+  a mapping is a pointer into the driver.
+- **`glGetString` had one buffer.** miniBox's generated wrapper copied every
+  answer into the same static buffer; upstream asks for vendor, renderer and
+  version, reads all three afterwards and picks driver workarounds from them,
+  so the first bridged run logged all three as "4.50". `gl-bridged.cpp` keeps
+  a copy per name. Reported to the main session, which found the same in
+  Dolphin and Flycast and fixed the generator (miniBox bd8daaf); the copy here
+  is then redundant and harmless, and stays until this core is built against
+  that miniBox.
+- **A load is a new context** (patch 0010, `CheckGLContext`). The context id
+  is compared at the top of every frame; when it has moved, or the engine said
+  a state was loaded and this core had not yet looked (chimera issue 126),
+  upstream's own "recreate the GPU" runs: every object of the old context is
+  let go of, a device and a renderer are made, and the renderer is restored
+  from guest memory. Upstream's version of that begins by reading VRAM back
+  from the card, which after a load is another machine's VRAM; a flag makes it
+  skip the read and trust the copy in guest memory.
+- **VRAM lives on the card, so a state has to be given it.** Under the
+  hardware renderer the console's video memory is one texture, at the
+  internal resolution and in 24-bit colour, and it is the machine's.
+  `StateSaving` fetches two things before every state taken while a bridged
+  context is live: upstream's 1024x512 15-bit copy (what the machine can read
+  back, and what upstream's restore uploads), and the texture itself, into a
+  block of this core's own memory allocated during Init. Rows are copied into
+  that block only when they differ, so untouched VRAM costs a state's delta
+  nothing; the buffer the card writes into is in no state. After the rebuild
+  the texture is uploaded over upstream's 15-bit restore.
+
+Measured on llvmpipe, the BIOS menu, a state kept at frame 1100 and restored
+at 1130:
+
+| what a state carried | frames after the load that differ from a straight run |
+|---|---|
+| upstream's 15-bit copy only | 2 of the first 2, 40% of their pixels by up to 4 levels of 255; exact from the third |
+| the texture, 1x | none |
+| the texture, 3x | none |
+| nothing (the core left untold) | the picture differs; the processor, sound and polls do not |
+
+The two wrong frames were the 24-bit picture coming back as 15-bit and taking
+both interlaced fields to be redrawn. Through the engine's own host half
+(`chimera-run --gpu`, llvmpipe) the game at 4x ran 1800 frames in 14 s and
+ended on the native software reference's Main RAM, with a 2560x896 frame.
+
+What a state does NOT carry: the PGXP depth buffer (not offered as a setting
+yet; cleared after a load, as upstream does on a settings change).
+
+NOT MEASURED: any of this on a graphics card. llvmpipe proves the bridge and
+the rebuild run; it is not a driver.
+
 ## The package
 
 `waterbox/build-package.sh -r <chimera>` builds `duckstation.chimeraCore`:
@@ -285,9 +348,15 @@ upwards), and nothing at all on Windows.
 ## The gate
 
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
-with a Chimera checkout. 22 legs, two and a quarter minutes here, all of them
-passing on 2026-10-09 with the SCPH-7001 BIOS and NHL Blades of Steel 2000
-(USA). Five are the hardware renderer's, on softpipe, sandbox against itself.
+with a Chimera checkout, with a GL context for the bridge. 26 legs, four
+minutes here, all of them passing on 2026-10-09 with the SCPH-7001 BIOS and
+NHL Blades of Steel 2000 (USA). Five are the hardware renderer's on softpipe,
+sandbox against itself, and four are the bridge's, drawn by llvmpipe.
+
+`gpu:picture-after-load` carries its own control: the same rewind is run with
+`CHIMERA_NO_STATE_SAVING=1`, which leaves the core untold as it does in the
+engine, and the leg fails unless that picture DIFFERS while the machine does
+not.
 
 The digests compared are video and audio hashed every frame, lag frames, the
 memory domains hashed once at the end, and `machineHash` - the machine's tick
@@ -312,8 +381,10 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 | the wall clock written into the reference's RAM | `bios:deterministic`, both compare legs |
 | the reference built with `-Dhost_clock=true` | `clock:virtual`, alone, and the gate took 4m24s instead of 80s |
 | the renderer setting ignored | `gl:softpipe`, `gl:scale` |
-| eight samples of sound dropped a frame under the GL renderer | `gl:machine` |
+| eight samples of sound dropped a frame under the GL renderer | `gl:machine`, `gpu:machine` |
 | the woven frame kept in memory no state carries | `disc:rewind` (and nothing at all while interlace was off by default) |
+| the card's VRAM fetched and never given back | `gpu:picture-after-load`, `gpu:rerecord` |
+| the bridge offered and ignored | `gpu:bridge` (softpipe drew), and `gpu:picture-after-load` through its control ("the untold picture is the SAME") |
 | a binding for a button that is not declared | `keybinds` |
 | a source newer than `core.wbx` | `build:fresh` |
 | a project with `fast_boot` against the reference without | the `engine:project` comparison, by hand; in the gate that leg was seen red through its stale-package arm |
@@ -383,6 +454,10 @@ by one) have to be read first.
 - **`g_scm_*` and `__DATE__`.** Upstream stamps its build from git and from
   the compiler's clock. Both are constants here, or two builds of one commit
   would be two packages.
+- **This machine has two Chimera checkouts.** `~/chimera` is the main
+  session's; this core builds and tests against `~/chimera-newcores`
+  (`-r`, `CHIMERA_ROOT`, `-m`). The scripts find a sibling checkout by
+  themselves, and here the sibling is the wrong one: say which.
 - **`chimera-run --frames` does nothing without `--record`.** A bare run
   with an empty movie plays zero frames and dumps the machine as it booted;
   a "divergence" was chased that was frame 0 compared with frame 1800.

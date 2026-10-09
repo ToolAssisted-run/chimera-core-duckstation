@@ -8,3 +8,6 @@ option('host_clock', type: 'boolean', value: false,
 
 option('mesa_guest_dir', type: 'string', value: '',
   description: 'A Mesa built for the guest (waterbox/setup-mesa.sh builds it into build/mesa). With one, this core also builds DuckStation\'s OpenGL device and its hardware renderer, and runs them against Mesa softpipe INSIDE the sandbox - a real GL implementation, no GPU, still deterministic. Without one, only the software renderer is built.')
+
+option('gl_bridge', type: 'boolean', value: false,
+  description: 'Native builds only: give run-wbx the host half of the GPU bridge, so the sandboxed hardware renderer can draw on a REAL graphics card (EGL, surfaceless). The GPU is outside the sandbox, outside the savestate and different on every machine; this is how the gate drives one, and what the frontend does through the engine\'s own host half.')

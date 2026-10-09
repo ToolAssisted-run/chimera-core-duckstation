@@ -24,6 +24,7 @@
 #include "core/cpu_core.h"
 #include "core/game_database.h"
 #include "core/gpu.h"
+#include "core/gpu_hw.h"
 #include "core/host.h"
 #include "core/pad.h"
 #include "core/settings.h"
@@ -47,6 +48,16 @@ extern "C" int ChimeraAudioTake(int16_t* out, int max_frames);
 const u8* ChimeraMemoryTextureBits(GPUTexture* texture, u32* pitch);
 // patches: "the sandbox file system is flat" - a second name for one file
 extern "C" void ChimeraFileAlias(const char* from, const char* to);
+#ifdef CHIMERA_GUEST_GL
+// waterbox/gl-bridged.cpp and the generated wrappers (miniBox source/gl)
+#include "gl-bridge.h"
+extern "C" bool chimera_gl_bridge_start(chimera_gl_bridge_fn bridge);
+extern "C" bool chimera_gl_bridged();
+// patches: "what the card holds outlives a load" - read by GPU_HW::DoState
+extern "C" {
+bool chimera_gl_objects_stale = false;
+}
+#endif
 // waterbox/stubs/frontend.cpp: say on stderr what upstream would have drawn
 extern "C" int chimera_verbose;
 
@@ -207,6 +218,134 @@ const char* NameTheBareFile()
 
 // ---- the picture ------------------------------------------------------------
 
+// What a GL device's frame is read back through. It is an object of that
+// device, so it goes when the device does (RebuildForNewContext).
+std::unique_ptr<GPUDownloadTexture> g_download;
+bool g_renderEnabled = true;
+
+#ifdef CHIMERA_GUEST_GL
+// ---- a real GPU, and the contexts its objects belong to -----------------------
+//
+// The GL objects the hardware renderer holds are NAMES a context handed out,
+// and they live in guest memory - so a state carries them into whatever
+// session loads it, where the driver has something else under each name or
+// nothing at all. The bridge says which context the calls are landing on
+// (chimera_gl_context_id; 0 for the softpipe, which is "nothing can have
+// moved"), and that number moves on every load. Compared at the top of every
+// frame, before anything is drawn.
+//
+// The frame-0 case (chimera issue 126): the number is first written by the
+// check itself, so the state taken right after Init carries 0 while a device
+// already exists. Loading it must rebuild too, which is why the engine's own
+// word for "the machine's memory was replaced" (StateLoaded) is kept beside it.
+uint64_t g_glContext = 0;
+bool g_glStateLoaded = false;
+
+// The console's VRAM as the card holds it, kept where a state can carry it.
+// The hardware renderer's VRAM is one texture, at the internal resolution
+// and in 24-bit colour; upstream's own copy of it (g_vram) is the console's
+// 1024x512 in 15-bit, which is what the MACHINE can read back but not what
+// the picture is made of. Carrying only that put the picture right again two
+// frames after a load, with 40% of the pixels off by up to four levels in
+// between (measured on the BIOS menu, 2026-10-09). So the texture itself is
+// fetched before a state and uploaded after a load.
+//
+// g_vramKept is this core's own memory, allocated during Init at the size the
+// project's resolution needs, and in the state. g_vramFetch is where the card
+// writes; it is in no state, and rows are copied across only when they
+// differ, so a part of VRAM nobody drew to costs a state's delta nothing.
+u8* g_vramKept;
+u8* g_vramFetch;
+u32 g_vramKeptWidth, g_vramKeptHeight; // 0 until a state has been taken with it
+u32 g_vramRoomWidth, g_vramRoomHeight;
+
+GPU_HW* HardwareRenderer()
+{
+  return (g_gpu && g_gpu->IsHardwareRenderer()) ? static_cast<GPU_HW*>(g_gpu.get()) : nullptr;
+}
+
+void FetchVRAMFromTheCard()
+{
+  GPU_HW* const hw = HardwareRenderer();
+  if (!hw || !g_vramKept)
+    return;
+
+  u32 width, height;
+  hw->ChimeraVRAMTextureSize(&width, &height);
+  if (width == 0 || width > g_vramRoomWidth || height > g_vramRoomHeight)
+    return;
+
+  const u32 pitch = width * 4u;
+  if (!hw->ChimeraDownloadVRAMTexture(g_vramFetch, pitch))
+    return;
+
+  for (u32 y = 0; y < height; y++)
+  {
+    const u8* const src = g_vramFetch + static_cast<size_t>(y) * pitch;
+    u8* const dst = g_vramKept + static_cast<size_t>(y) * pitch;
+    if (g_vramKeptWidth != width || std::memcmp(dst, src, pitch) != 0)
+      std::memcpy(dst, src, pitch);
+  }
+  g_vramKeptWidth = width;
+  g_vramKeptHeight = height;
+}
+
+void GiveVRAMBackToTheCard()
+{
+  GPU_HW* const hw = HardwareRenderer();
+  if (!hw || !g_vramKept || g_vramKeptWidth == 0)
+    return;
+
+  u32 width, height;
+  hw->ChimeraVRAMTextureSize(&width, &height);
+  if (width != g_vramKeptWidth || height != g_vramKeptHeight)
+    return; // a state from another resolution: the console's own copy has to do
+  hw->ChimeraUploadVRAMTexture(g_vramKept, width * 4u);
+}
+
+// The rebuild is upstream's own "the device went away": everything the old
+// context owned is let go of first, a device is made, the renderer is made,
+// and VRAM is uploaded from guest memory - which a state DOES carry, because
+// StateSaving fetched it from the card before the state was taken. What is
+// lost is what upstream loses loading one of its own states: detail above the
+// console's resolution, until the game draws it again.
+void RebuildForNewContext(uint64_t was, uint64_t now)
+{
+  if (chimera_verbose)
+    std::fprintf(stderr, "duckstation: GL objects came from context %llu, now %llu; rebuilding\n",
+                 static_cast<unsigned long long>(was), static_cast<unsigned long long>(now));
+
+  g_download.reset();
+  chimera_gl_objects_stale = true;
+  const bool ok = System::ChimeraRecreateGPU();
+  chimera_gl_objects_stale = false;
+  if (!ok)
+  {
+    std::fprintf(stderr, "duckstation: the renderer could not be rebuilt on the new context\n");
+    return;
+  }
+
+  // upstream has uploaded the console's own copy; now the card's
+  GiveVRAMBackToTheCard();
+}
+
+void CheckGLContext()
+{
+  if (!g_gpu_device || g_gpu_device->GetRenderAPI() != RenderAPI::OpenGL)
+    return;
+
+  const bool after_load = g_glStateLoaded;
+  g_glStateLoaded = false;
+  const uint64_t live = chimera_gl_context_id();
+  if (live == 0 || live == g_glContext)
+    return;
+
+  if (g_glContext != 0 || after_load)
+    RebuildForNewContext(g_glContext, live);
+  g_glContext = live;
+}
+#endif
+
 // The frame is the console's raster, not the texture: the visible rectangle
 // of VRAM sits somewhere inside a screen whose size the video mode decides,
 // and a game that letterboxes or shifts its picture does it by moving that
@@ -257,12 +396,12 @@ void ComposeFrame()
   // The texture's bytes: where they already are, or read back from the device.
   u32 pitch = 0;
   const u8* bits = ChimeraMemoryTextureBits(d.texture, &pitch);
+  std::unique_ptr<GPUDownloadTexture>& download = g_download;
   bool swap_rb = false;
   bool flip = false;
   int row0 = d.view_y, col0 = d.view_x;
   if (!bits)
   {
-    static std::unique_ptr<GPUDownloadTexture> download;
     static std::vector<u32> texels;
     const GPUTexture::Format format = d.texture->GetFormat();
     if (format != GPUTexture::Format::RGBA8 && format != GPUTexture::Format::BGRA8)
@@ -343,6 +482,9 @@ void ApplySettings(SettingsInterface& si)
     wbx_setting_str("renderer", renderer, sizeof(renderer));
     g_rendererWanted = renderer;
 #ifdef CHIMERA_GUEST_GL
+    // "opengl" and "opengl-hw" are one renderer. The second asks for a real
+    // graphics card; whether there is one is the host's to say (SetGpuBridge),
+    // and without one the softpipe draws, as it does for the first.
     si.SetStringValue("GPU", "Renderer",
                       Settings::GetRendererName(strcmp(renderer, "software") == 0 ? GPURenderer::Software :
                                                                                     GPURenderer::HardwareOpenGL));
@@ -537,6 +679,19 @@ ECL_EXPORT int Init(void)
   // The frame, at the scale the project asked for. It is the picture the
   // frontend is shown and nothing the machine reads, but the weave keeps the
   // other field in it from one frame to the next - so it is in the state.
+#ifdef CHIMERA_GUEST_GL
+  // Room for the card's VRAM, when a card is drawing (see FetchVRAMFromTheCard).
+  // Taken here, during Init, and never later.
+  if (chimera_gl_bridged() && g_rendererWanted != "software")
+  {
+    g_vramRoomWidth = 1024u * static_cast<u32>(g_scale);
+    g_vramRoomHeight = 512u * static_cast<u32>(g_scale);
+    const size_t bytes = static_cast<size_t>(g_vramRoomWidth) * g_vramRoomHeight * 4u;
+    g_vramKept = static_cast<u8*>(std::calloc(bytes, 1));
+    g_vramFetch = static_cast<u8*>(alloc_invisible(bytes));
+  }
+#endif
+
   g_videoCapacity = static_cast<size_t>(MAX_WIDTH) * MAX_HEIGHT * g_scale * g_scale;
   g_video = static_cast<uint32_t*>(std::malloc(sizeof(uint32_t) * g_videoCapacity));
   std::fill_n(g_video, g_videoCapacity, 0xFF000000u);
@@ -728,14 +883,68 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
   if (!g_booted)
     return;
 
+#ifdef CHIMERA_GUEST_GL
+  CheckGLContext();
+#endif
+
   // One frame: Host::PumpMessagesOnCPUThread pauses the system at the end of
   // the frame the machine draws, and Execute returns when it is paused.
   System::PauseSystem(false);
   System::Execute();
 
-  ComposeFrame();
+  // Turbo skips the readback, never the drawing: what the renderer draws
+  // stays in VRAM, and a frame not drawn is a picture lost, not deferred.
+  if (g_renderEnabled)
+    ComposeFrame();
   g_nsamples = ChimeraAudioTake(g_soundOut, MAX_AUDIO_FRAMES);
 }
+
+/* Told after every load of the machine - a savestate, a branch file, a
+ * greenzone restore - with the machine stopped and before it runs again. The
+ * one thing this core keeps that a load invalidates is its claim about which
+ * GL context its objects came from. */
+ECL_EXPORT void StateLoaded(void)
+{
+#ifdef CHIMERA_GUEST_GL
+  g_glStateLoaded = true;
+#endif
+}
+
+/* Told before every state the engine takes, the machine stopped at a frame's
+ * end. Under a real GPU the console's VRAM is a texture on the card and in no
+ * state, so it is brought into guest memory here; the rebuild after a load
+ * uploads it again. Not for the softpipe, whose textures are guest memory
+ * already, and not when the objects are another context's - a state taken
+ * after a load and before the next frame, whose copy is the one the load
+ * brought. */
+ECL_EXPORT void StateSaving(void)
+{
+#ifdef CHIMERA_GUEST_GL
+  if (!g_booted || !chimera_gl_bridged() || !g_gpu_device || g_gpu_device->GetRenderAPI() != RenderAPI::OpenGL)
+    return;
+  const uint64_t live = chimera_gl_context_id();
+  if (live == 0 || live != g_glContext)
+    return;
+  g_gpu->RestoreDeviceContext();
+  g_gpu->ChimeraReadBackVRAM();
+  FetchVRAMFromTheCard();
+#endif
+}
+
+/* The seam to a real GPU. The host registers one callback with the sandbox
+ * and hands its guest-visible address here BEFORE Init, because the device is
+ * made during Init and which one depends on whether a GPU is on offer. Without
+ * this call - every ordinary run - the softpipe draws.
+ *
+ * A machine drawn this way is not the deterministic one: the GPU is outside
+ * the sandbox, outside the savestate and different on every machine. */
+#ifdef CHIMERA_GUEST_GL
+ECL_EXPORT void SetGpuBridge(uint64_t addr)
+{
+  if (!chimera_gl_bridge_start(reinterpret_cast<chimera_gl_bridge_fn>(addr)))
+    std::fprintf(stderr, "duckstation: the GPU bridge was offered and refused\n");
+}
+#endif
 
 /* For the gate, not for the frontend: where the machine is, as one number.
  * Its clock and where its processor is about to execute, which two runs that
@@ -752,6 +961,7 @@ ECL_EXPORT uint64_t ChimeraMachineDigest(void)
 
 ECL_EXPORT void SetRenderingEnabled(int on)
 {
+  g_renderEnabled = (on != 0);
 }
 
 ECL_EXPORT uint32_t* GetVideoBgra(void)
