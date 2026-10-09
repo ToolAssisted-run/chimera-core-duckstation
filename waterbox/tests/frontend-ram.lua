@@ -61,8 +61,18 @@ end
 pcall(function() client.speedmode(6400) end)
 pcall(function() client.invisibleemulation(true) end)
 
+-- Up to a frame NUMBER, not for a count of frames. The frontend starts playing
+-- the project as soon as it is open, and whether this script gets its first
+-- turn before frame 0 or after frame 2 is the host's scheduling: under Mono it
+-- was the first, on Windows the second. Counting advances from wherever that
+-- was asks for frames past the end of the movie, where a headless run pauses
+-- for good - and would compare the wrong frame if it did not.
 local frames = tonumber(job.frames) or 120
-for _ = 1, frames do
+if emu.framecount() > frames then
+	finish("ERROR", "the script started at frame " .. emu.framecount() .. ", past frame " .. frames)
+	return
+end
+while emu.framecount() < frames do
 	emu.frameadvance()
 end
 

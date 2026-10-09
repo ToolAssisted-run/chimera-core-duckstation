@@ -4,7 +4,8 @@
 # number of frames with nothing pressed, and require the first megabyte of its
 # Main RAM to be byte-identical to the native reference. Then prove that a
 # machine-shaping setting arrives through a project, that a project's disc
-# does, and that the package's keybinds become the frontend's defaults.
+# does, that a movie's presses reach the pad on the frames they name, and that
+# the package's keybinds become the frontend's defaults.
 #
 # Everything goes through a project, because that is what Chimera hands a
 # core: a cue sheet and the files it names cannot be opened any other way.
@@ -71,8 +72,11 @@ bios="${CHIMERA_PS1_BIOS:-}"
 disc="${CHIMERA_PS1_DISC:-}"
 [ -n "$disc" ] || { [ -f "$root/tests/roms/NHL Blades of Steel 2000 (USA).cue" ] && disc="$root/tests/roms/NHL Blades of Steel 2000 (USA).cue"; }
 
+game3d="${CHIMERA_PS1_GAME3D:-}"
+[ -n "$game3d" ] || { [ -f "$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue" ] && game3d="$root/tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue"; }
+
 if [ -z "$bios" ]; then
-	for leg in menu:frontend settings:frontend disc:frontend keybinds; do
+	for leg in menu:frontend settings:frontend disc:frontend play:frontend keybinds; do
 		report "$leg" SKIP "needs a PlayStation BIOS: tests/roms/bios/PSX_4.1(A).bin, or CHIMERA_PS1_BIOS=<file>"
 	done
 	echo
@@ -131,9 +135,10 @@ run_project() {
 	[ -f "$work/$tag.meta.txt" ] && grep -q "^status=OK" "$work/$tag.meta.txt"
 }
 
-# <tag> <frames> <settings json> [disc sheet]
+# <tag> <frames> <settings json> [disc sheet] [run-native arguments...]
 native_ram() {
 	local tag="$1" nframes="$2" settings="$3" sheet="${4:-}"
+	[ $# -ge 4 ] && shift 4 || shift $#
 	local wd="$work/native.$tag"
 	rm -rf "$wd"; mkdir -p "$wd"
 	cp "$bios" "$wd/bios"
@@ -143,7 +148,7 @@ native_ram() {
 		sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$sheet" | sort -u | while IFS= read -r f; do ln -s "$(dirname "$sheet")/$f" "$wd/$f"; done
 		printf '{"disc":["%s"]}' "$(basename "$sheet")" > "$wd/slots"
 	fi
-	"$rn" "$wd" --frames "$nframes" --dump-domain "Main RAM" "$work/native.$tag.ram.full" > "$work/native.$tag.txt" 2>&1 || return 1
+	"$rn" "$wd" --frames "$nframes" "$@" --dump-domain "Main RAM" "$work/native.$tag.ram.full" > "$work/native.$tag.txt" 2>&1 || return 1
 	head -c "$SLICE" "$work/native.$tag.ram.full" > "$work/native.$tag.ram.bin"
 }
 
@@ -201,9 +206,42 @@ else
 	fi
 fi
 
+# --- a movie with presses in it: the pad, through the frontend ----------------
+# Every project above holds nothing down, so none of them says a row of a
+# movie reaches the console's pad. The core gate's played game does: Need for
+# Speed - Porsche Unleashed, Start past the films, Cross through the menus,
+# Cross held on the grid - the same presses, written as a movie's rows in the
+# package's own mnemonics. The reference is given them by wire index (4 Start,
+# 7 Cross); the same game with nothing pressed is the control.
+if [ -z "$game3d" ]; then
+	report "play:frontend" SKIP "needs tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue with its image, or CHIMERA_PS1_GAME3D=<that .cue>"
+else
+	pframes=6000
+	n_press=(--press 900:4:4 --press 1100:4:4 --press 1300:4:4)
+	m_press=("--press=900:4:P1 Start" "--press=1100:4:P1 Start" "--press=1300:4:P1 Start")
+	for f in $(seq 1500 150 5400); do n_press+=(--press "$f:4:7"); m_press+=("--press=$f:4:P1 Cross"); done
+	n_press+=(--press 5500:500:7); m_press+=("--press=5500:500:P1 Cross")
+	args=("--set=fast_boot=true" "${m_press[@]}" "disc=$game3d")
+	while IFS= read -r f; do args+=("support=$(dirname "$game3d")/$f"); done < <(sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$game3d" | sort -u)
+	ln -sf "$game3d" "$work/$(basename "$game3d")"
+	sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$game3d" | sort -u | while IFS= read -r f; do ln -sf "$(dirname "$game3d")/$f" "$work/$f"; done
+	if ! native_ram "play" "$pframes" '{"fast_boot":true}' "$game3d" "${n_press[@]}" || ! native_ram "playidle" "$pframes" '{"fast_boot":true}' "$game3d"; then
+		report "play:frontend" FAIL "native runner error (see tests/work/native.play.txt)"
+	elif cmp -s "$work/native.play.ram.bin" "$work/native.playidle.ram.bin"; then
+		report "play:frontend" FAIL "the reference with the presses and the one without built the same RAM: the script reaches nothing"
+	elif ! run_project "play" "$pframes" "${args[@]}"; then
+		report "play:frontend" FAIL "no OK meta (see tests/work/play.log)"
+	elif ! cmp -s "$work/native.play.ram.bin" "$work/play.ram.bin"; then
+		report "play:frontend" FAIL "Main RAM differs from the native reference$(cmp -s "$work/native.playidle.ram.bin" "$work/play.ram.bin" && echo ": it is the IDLE game's - the movie's presses never reached the pad")"
+	else
+		report "play:frontend" PASS "$pframes frames of a movie that presses its way from boot into a race: Main RAM identical to the native reference given the same presses, and not the idle game's"
+	fi
+fi
+
 # --- the bindings the package ships must become the frontend's defaults -------
 python3 "$here/forget-controller.py" "$work/config.base.ini" "$work/config.keys.ini" "PlayStation Controllers"
-if run_config="$work/config.keys.ini" run_project "keys" 1; then
+# thirty frames, not one: the script may get its first turn a frame or two in
+if run_config="$work/config.keys.ini" run_project "keys" 30; then
 	if python3 "$here/check-keybinds.py" "$work/config.keys.ini" \
 		"$wb/default_keybinds.json" "PlayStation Controllers" > "$work/keys.txt" 2>&1; then
 		report "keybinds" PASS "$(cat "$work/keys.txt")"

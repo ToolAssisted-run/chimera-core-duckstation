@@ -102,7 +102,7 @@ and, in the Chimera checkout, the contract tests (`docs/BUILDING.md`).
 - **Know what ran.** Both gates must end with `0 failed`. A PlayStation runs
   nothing without its ROM, so with no content the core gate runs four checks
   (`build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry`), skips 31,
-  and the frontend gate skips all four of its own. That is all CI proves.
+  and the frontend gate skips all five of its own. That is all CI proves.
 - To gate the machine, provide the BIOS the gate names:
   `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS=<file>`. The disc
   checks want `NHL Blades of Steel 2000 (USA)`, the played-game checks `Need
@@ -113,7 +113,9 @@ and, in the Chimera checkout, the contract tests (`docs/BUILDING.md`).
 - The GPU checks draw on whatever this machine's EGL gives and name it. A
   result seen on llvmpipe is not said of a graphics card.
 - The frontend gate needs Chimera built (natives and the .NET solution), the
-  package installed, `run-native`, Mono and Xvfb.
+  package installed, `run-native`, Mono and Xvfb. Its work folder
+  (`waterbox/tests/work/`) is one folder: a control run leaves ITS projects
+  and dumps there, so run the real gate last before using anything in it.
 - A check that was skipped has proven nothing about your change.
 
 ## Rules of this repository

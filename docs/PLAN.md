@@ -109,9 +109,8 @@ and declared.
   wrote, a PAL or Japanese console.
 - **M5 - the package and the frontend gate.** DONE 2026-10-09: the four
   declarations, `build-package.sh`, Chimera's contract tests, a project
-  through `chimera-run`, and the frontend gate under Mono. Not done: the
-  same scenario on Windows through the frontend itself (only `chimera-run.exe`
-  has run there).
+  through `chimera-run`, and the frontend gate under Mono and, by hand, on
+  Windows (see "The frontend gate").
 - **M6 - the hardware renderer.** DONE 2026-10-09 but for widescreen: it
   runs inside the sandbox on Mesa softpipe and, through the GPU bridge, on a
   real card (a GTX 1060), at 1x to 8x, with states, rewind and an exact
@@ -535,15 +534,60 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 ## The frontend gate
 
 `waterbox/tests/run-frontend.sh --chimera-root <chimera>`: the installed
-package through the real frontend, headless under Mono, from projects. Four
-legs, half a minute, passing on 2026-10-09: the console with an empty tray
-for 600 frames, a PAL console (a setting that has to arrive, and has to make
-another machine), the game from a cue sheet and its image for 1500 frames -
-each ending on the first megabyte of the native reference's Main RAM - and
-the package's bindings becoming the frontend's. Seen red: a binding changed
-in the repository after the package was built (`keybinds` names it). The
-other three carry their controls: the PAL machine must differ from the NTSC
-one, and the disc run from the empty console.
+package through the real frontend, headless under Mono, from projects. Five
+legs, a minute, passing on 2026-10-09: the console with an empty tray for
+600 frames, a PAL console (a setting that has to arrive, and has to make
+another machine), the game from a cue sheet and its image for 1500 frames, a
+movie that presses its way into a race for 6000 - each ending on the first
+megabyte of the native reference's Main RAM - and the package's bindings
+becoming the frontend's. Seen red: a binding changed in the repository after
+the package was built (`keybinds` names it). The others carry their
+controls: the PAL machine must differ from the NTSC one, the disc run from
+the empty console, the played game from the same game left alone.
+
+**`play:frontend` is the only leg that presses anything**, and was added
+when the scenario was taken to Windows: the first four hold nothing down, so
+none of them says a row of a movie reaches the pad, or reaches it on the
+frame it names. It is the core gate's played game (Start past the films,
+Cross through the menus, Cross held on the grid) written as a movie's rows
+by `make-project.py --press=<frame>:<count>:<button>`, against a reference
+given the same presses by wire index. Seen red twice: with no presses in the
+movie (the leg says the frontend's RAM is the idle game's), and with every
+menu press one frame late (RAM differs). A first attempt at the second
+control moved only the held accelerator by a frame and stayed GREEN - the
+race polls the pad too slowly to tell - so what the leg can see was
+measured on the reference first: of the presses in the script, a one-frame
+shift of the menu press at 2550 changes memory at frame 3000 and a shift of
+the hold at 5500 does not.
+
+**On Windows (2026-10-09).** A Windows bundle of Chimera 3b5ed5b, this
+package, the five projects the Linux run had just made and copies of the
+BIOS and the games, in a folder of its own under `%TEMP%`, run by
+`Chimera.exe --headless` with a scratch config and data folder. All five
+agree with Linux: the three idle machines and the played movie end on the
+Linux native reference's first megabyte byte for byte, the PAL console and
+the disc differ from the empty NTSC one, the bindings are adopted. The
+600-frame runs take four seconds, the 6000-frame race fifteen. That is the
+frontend on the software renderer; the card's results are the
+`chimera-run.exe` ones above.
+
+What Windows found was in the harness, not the core:
+
+- **The script counted frames from wherever it started.** `frontend-ram.lua`
+  advanced N times. Under Mono its first turn comes before frame 0; on
+  Windows the frontend has already played two frames, so N advances asked
+  for two frames past the end of the movie, where a headless run pauses for
+  good: the process sat idle with its window up and no file written. The
+  script now runs to a frame NUMBER, and says so if it starts past it.
+- **A control leaves its files behind.** The gate's work folder is one
+  folder. The last thing to write `play.chimeraProject` before the copy to
+  Windows was the control with late presses, so the first Windows run of
+  that leg "diverged" at frame 2600, deterministically. It cost an hour of
+  bisecting before the movie itself was read. It turned into evidence all
+  the same: the Windows frontend's memory was, byte for byte, the
+  reference's with every press one frame late - the engine and the frontend
+  put a row on exactly the frame it names. Run the real gate last, and read
+  the artefact before the machine.
 
 Two things the frontend found that the engine's runner had not:
 
@@ -596,7 +640,7 @@ then Chimera's reusable publish workflow.
 
 **What it proves is the first tier and no more.** With no BIOS the core gate
 runs `build:fresh`, `keybinds`, `nobios:refuses` and `gamedb:entry` and says
-SKIP 31 times; the frontend gate says SKIP four times and is run all the
+SKIP 31 times; the frontend gate says SKIP five times and is run all the
 same, so that the script is known to find the frontend, the package and the
 reference. The contract tests need no content. The workflow's header says
 this, and so does every skipped line.

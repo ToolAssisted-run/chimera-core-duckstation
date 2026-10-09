@@ -11,9 +11,13 @@ With no slot argument the console has an empty tray, and boots to its own
 menu.
 
 usage: make-project.py <package> <out.chimeraProject> <frames> [--set=<setting>=<value> ...]
-                       [--idle-row=<row>] [<slot=file> ...]
+                       [--idle-row=<row>] [--press=<frame>:<count>:<button> ...]
+                       [<slot=file> ...]
 
-A file a cue sheet names goes in as support=<file>.
+A file a cue sheet names goes in as support=<file>. --press holds a button,
+by the name the package declares ("P1 Cross"), for <count> frames from
+<frame>: the row of frame N is what the pad says while frame N runs, as
+run-native's --press has it.
 
 A movie's row has a column for every control the MACHINE has, which is not
 every control the package declares: a port with nothing in it has none, a
@@ -51,9 +55,16 @@ def main():
     files = []
     chosen = {}
     idle_row = None
+    presses = []
     for arg in sys.argv[4:]:
         if arg.startswith("--idle-row="):
             idle_row = arg[len("--idle-row="):]
+            continue
+        if arg.startswith("--press="):
+            first, count, name = arg[len("--press="):].split(":", 2)
+            if name not in buttons:
+                sys.exit("make-project.py: the package declares no button named " + name)
+            presses.append((int(first), int(count), name))
             continue
         if arg.startswith("--set="):
             name, value = arg[len("--set="):].split("=", 1)
@@ -101,30 +112,46 @@ def main():
             return "Stick" not in name and name.split(" ", 1)[1] not in ("L3", "R3", "Analog")
         return True
 
+    # what a held button writes in its column: the package's own character
+    mnemonics = inputs.get("mnemonics", {})
+
+    def mnemonic(name):
+        return mnemonics.get(name, mnemonics.get(name.partition(" ")[2], "!"))
+
     groups = max([player_of(a["name"]) for a in axes] + [player_of(b) for b in buttons] + [0]) + 1
-    row, key = "", ""
-    for g in range(groups):
-        cells, names = "", ""
-        for a in axes:
-            if player_of(a["name"]) == g and live(a["name"]):
-                cells += "%5d," % a.get("neutral", 0)
-                names += a["name"] + "|"
-        for b in buttons:
-            if player_of(b) == g and live(b):
-                cells += "."
-                names += b + "|"
-        if g > 0 and not names:
-            continue  # a port with nothing in it has no group
-        row += "|" + cells
-        key += "#" + names
-    row += "|"
+
+    def row_of(held):
+        row, key = "", ""
+        for g in range(groups):
+            cells, names = "", ""
+            for a in axes:
+                if player_of(a["name"]) == g and live(a["name"]):
+                    cells += "%5d," % a.get("neutral", 0)
+                    names += a["name"] + "|"
+            for b in buttons:
+                if player_of(b) == g and live(b):
+                    cells += mnemonic(b) if b in held else "."
+                    names += b + "|"
+            if g > 0 and not names:
+                continue  # a port with nothing in it has no group
+            row += "|" + cells
+            key += "#" + names
+        return row + "|", key
+
+    row, key = row_of(())
+    for first, count, name in presses:
+        if not live(name):
+            sys.exit("make-project.py: this machine has no %s to press" % name)
     # The engine's own word for the row, when the caller has it (a project of
     # no frames asked to record one): it must be the row worked out above, or
     # the rule restated here has drifted from the core's - upstream's game
     # database can swap a DualShock for a digital pad, for one.
     if idle_row is not None and idle_row != row:
         sys.exit("make-project.py: the engine records %r for an idle frame and this script worked out %r" % (idle_row, row))
-    log = "[Input]\nLogKey:" + key + "\n" + "\n".join([row] * frames) + ("\n" if frames else "") + "[/Input]\n"
+    rows = [row] * frames
+    for f in sorted(set(f for first, count, _ in presses for f in range(first, first + count) if f < frames)):
+        rows[f] = row_of(set(name for first, count, name in presses if first <= f < first + count))[0]
+    log = "[Input]\nLogKey:" + key + "\n" + "\n".join(rows) + ("\n" if frames else "") + "[/Input]\n"
 
     # the firmware this machine needs, pinned as the wizard would pin it: every
     # declaration whose condition the settings meet (the ROMs themselves come

@@ -16,7 +16,7 @@ name: chimera waterbox core
 # through the frontend - needs a BIOS or a game, reports SKIP here, and is
 # run by hand against the developer's own content. waterbox/run-gate.sh says
 # so on every line: 4 checks run here, 31 skip, and the frontend gate skips
-# all 4 of its own.
+# all 5 of its own.
 
 on:
   pull_request:

@@ -250,10 +250,20 @@ games are yours to provide; `tests/roms/` is ignored by git wholesale.
 ```
 
 The package through the real frontend, headless under Mono and Xvfb:
-`menu:frontend`, `settings:frontend`, `disc:frontend`, `keybinds`. It needs
-Chimera built (below), the package installed, `run-native`, and the BIOS;
-`disc:frontend` needs the disc. Without a BIOS all four say SKIP. Its scratch
-is `waterbox/tests/work/`.
+`menu:frontend`, `settings:frontend`, `disc:frontend`, `play:frontend`,
+`keybinds`. It needs Chimera built (below), the package installed,
+`run-native`, and the BIOS; `disc:frontend` needs the disc and
+`play:frontend` the 3D game, whose movie is the only one that presses
+anything. Without a BIOS all five say SKIP. Its scratch is
+`waterbox/tests/work/`.
+
+The same projects run on Windows by hand: a Windows bundle
+(`tools/build-bundle.sh --platform windows` in the Chimera checkout), the
+package in its `Cores` folder, and `Chimera.exe --headless --config=<a
+scratch config> --project=<project> --firmware=bios=<file>
+--lua=frontend-ram.lua` with `MINIHAWK_JOB` naming the job file, compared
+with the Linux reference. `docs/PLAN.md` ("The frontend gate") has what that
+found.
 
 ### Chimera's contract tests
 
