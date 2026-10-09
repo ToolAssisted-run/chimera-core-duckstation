@@ -6,9 +6,10 @@ Upstream is `stenzek/duckstation`, pinned as a submodule at
 `extern/duckstation` to commit `14ab642` (2024-09-01): the last one offered
 under the GPL-3.0. The pin does not move; `docs/PLAN.md` says why.
 
-**Work in progress.** The native reference and the sandboxed core build, boot
-a game and agree with each other; there is no package yet. `docs/PLAN.md` has
-the milestones and what was measured.
+**Work in progress.** It boots a game on the software renderer, in the
+sandbox, identically to its native build, and the package loads in Chimera.
+The hardware renderer and its enhancements - the reason this core exists -
+are not built yet. `docs/PLAN.md` has the milestones and what was measured.
 
 ## Building
 
@@ -37,3 +38,14 @@ build/meson-native/run-wbx build/meson-guest/core.wbx <folder> --frames 600
 The two print the same digests of video, audio and memory, or something is
 wrong. The BIOS and the games are yours to provide; none is in this
 repository.
+
+## The gate and the package
+
+```sh
+./waterbox/run-gate.sh                               # native against sandbox, leg by leg
+./waterbox/build-package.sh -r <chimera checkout>    # -> build/Cores/duckstation.chimeraCore
+```
+
+The gate needs a BIOS at `tests/roms/bios/PSX_4.1(A).bin` (or
+`CHIMERA_PS1_BIOS`) for anything past its first four checks, and a disc
+(`CHIMERA_PS1_DISC`) for the rest. What is missing is reported SKIP.

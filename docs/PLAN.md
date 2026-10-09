@@ -93,14 +93,21 @@ and declared.
 - **M0 - a native reference that boots.** DONE 2026-10-09. A curated source
   set (`waterbox/sources.sh`), meson for both flavors, a Host implementation,
   a graphics device made of memory, a sound device that is a buffer.
-- **M1 - virtual time.** DONE 2026-10-09 (patch 0003). Gate leg outstanding.
+- **M1 - virtual time.** DONE 2026-10-09 (patch 0003; gate leg
+  `clock:virtual`).
 - **M2 - the guest build.** DONE 2026-10-09: `core.wbx` links, passes
-  `check-wbx.sh`, and agrees with the native reference (see "What was
-  measured").
-- **M3 - input, lag, memory domains, savestates as gate legs.**
-- **M4 - discs and memory cards**: the slot map, multi-disc games, the
-  memory cards through the save-data channel, the three BIOS regions.
-- **M5 - the package and the frontend gate.**
+  `check-wbx.sh`, and agrees with the native reference.
+- **M3 - input, lag, savestates as gate legs.** DONE 2026-10-09 for two
+  ports of digital pad or DualShock. The other controllers upstream has
+  (mouse, GunCon, NeGcon, Justifier, analog joystick) and the multitap are
+  not wired.
+- **M4 - discs and memory cards.** PARTLY: one disc, by name from a project
+  or nameless when opened directly. Not yet: several discs and the swap,
+  memory cards through the save-data channel (a card is in port 1 but lives
+  and dies with the session), a PAL or Japanese game.
+- **M5 - the package.** DONE 2026-10-09 for what exists: the four
+  declarations, `build-package.sh`, Chimera's contract tests, and a project
+  through `chimera-run`. The frontend gate under Mono is not written.
 - **M6 - the hardware renderer**: OpenGL through Mesa softpipe in the
   sandbox, then the GPU bridge; the enhancements the request names (internal
   resolution, PGXP, true colour, texture filtering, widescreen) as settings.
@@ -176,6 +183,84 @@ them in the sandbox (`getcwd`, `access`, `mkdir`, `lstat`) are answered in
 core (`waterbox/resources.S`). The disc-hash database and the cheat database
 are not the machine's and are absent.
 
+## The package
+
+`waterbox/build-package.sh -r <chimera>` builds `duckstation.chimeraCore`
+(2.9 MB; the per-title database is most of what compresses).
+
+- **System id `PS1`**, the one the ares core uses for the same console.
+  `.cue`, `.chd`, `.pbp`, `.ecm` and the executable extensions are claimed;
+  `.bin`, `.iso` and `.img` are not, because they are a dozen machines' disc
+  images.
+- **The BIOS is one firmware id, `bios`, and a setting says which dump.**
+  Twenty retail ROMs are declared, v1.0 (Japan) to v4.5 (Europe), each with
+  the SHA-1 measured from a dump and matched by MD5 against upstream's own
+  table (`bios.cpp`). Default `v4.1-a`, the dump the ares core asks for, so a
+  user who has resolved one has resolved the other.
+- **Region** is its own setting (`auto` reads the disc), because the BIOS
+  and the console's market are two things: upstream warns about a mismatch
+  and runs.
+- **The wire** is per port the DualShock's seventeen buttons and four stick
+  bytes. A stick axis is declared 0..255 with 128 at rest and is the byte the
+  pad reports: upstream takes half axes as floats and merges them, so the
+  adapter inverts that (`SetStickByte`) and every byte is reachable. Upstream's
+  1.33 stick sensitivity, its dead zone and its "left stick is the d-pad in
+  digital mode" convenience are all off. The Analog button is told to
+  upstream once per press, because upstream toggles on every telling.
+- **A file with no name.** A disc opened directly is mounted as `disc` with
+  no extension, and upstream decides what an image is by extension. The
+  adapter reads the first bytes (CHD, PBP, ECM, PS-X EXE, raw 2352-byte
+  sectors) and gives the file a second name through an alias in the flat file
+  system (patch 0005). A cue sheet opened alone is refused with a message
+  that says to make a project.
+- **The field rate** is reported exactly: the video crystal over ticks per
+  line times lines, 53693175/897619 (59.826 Hz) on an NTSC console.
+
+Not verified: the default bindings with a physical pad (the stick axes in
+particular - a byte that grows downwards against a host axis that grows
+upwards), and nothing at all on Windows.
+
+## The gate
+
+`waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
+with a Chimera checkout. 17 legs, 80 seconds here, all of them passing on
+2026-10-09 with the SCPH-7001 BIOS and NHL Blades of Steel 2000 (USA).
+
+The digests compared are video and audio hashed every frame, lag frames, the
+memory domains hashed once at the end, and `machineHash` - the machine's tick
+counter, program counter and registers folded in every frame, because a
+difference in memory that heals before the end is otherwise invisible. That
+is not a guess: the first sandbox-only sabotage flipped a byte of RAM at
+frame 100 and the disc leg passed, because the game later loaded over it.
+
+Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
+
+| broken on purpose | legs that went red |
+|---|---|
+| the database resource not found | `gamedb:entry` |
+| `SetButton` dropping the press | `input:reaches` ("idle and pressed are the SAME run") |
+| the poll hook doing nothing | `lag:counted` (1300 of 1300) |
+| no alias for the nameless file | `disc:nameless` |
+| the cue message reworded | `cue:alone` |
+| the missing-BIOS check removed | `nobios:refuses` |
+| the sandbox writing one byte of RAM a frame that the reference does not | `bios:compare`, `disc:compare`, `disc:nameless`, `input:reaches` |
+| a counter the machine reads kept in memory no state carries | `bios:rewind`, `disc:rewind` - and NOT the two rerecord legs, which save and load with nothing in between and cannot see it |
+| `StateLoaded` writing to RAM | `bios:rerecord`, `disc:rerecord`, both rewind legs |
+| the wall clock written into the reference's RAM | `bios:deterministic`, both compare legs |
+| the reference built with `-Dhost_clock=true` | `clock:virtual`, alone, and the gate took 4m24s instead of 80s |
+| a binding for a button that is not declared | `keybinds` |
+| a source newer than `core.wbx` | `build:fresh` |
+| a project with `fast_boot` against the reference without | the `engine:project` comparison, by hand; in the gate that leg was seen red through its stale-package arm |
+
+Chimera's contract tests pass against the package alone (12 of 12) and fail
+with a binding for an undeclared button added to a copy of it (11 of 12,
+naming `duckstation/PlayStation Controllers: P1 Turbo Nonsense`).
+
+What the gate does not stand in for (docs/gates.md, E): one game, booted to
+its publisher logos with a pad exercised at random. No menu was navigated, no
+3D scene was drawn, no save was written. An NTSC-U disc on an NTSC-U BIOS is
+the only combination tried.
+
 ## What was measured (2026-10-09)
 
 BIOS: SCPH-7001 v4.1 (sha1 `14df4f6c1e367ce097c11deae21566b4fe5647a9`).
@@ -188,10 +273,12 @@ Interpreter, software renderer.
 | BIOS shell, native against sandbox | 1200 | video, audio, Main RAM identical |
 | game, native against sandbox, pad exercised | 2400 | video, audio, Main RAM identical; 4.5 s native, 6.2 s sandboxed |
 | game, sandbox, a state saved and loaded around every frame | 900 | identical to the straight run |
+| game from a project (cue and bin) through `chimera-run` | 1800 | Main RAM byte-identical to the native reference; 2.6 s |
+| game opened directly (the bin alone) through `chimera-run` | 1800 | the same RAM |
 
-The game boots to its publisher logos; nothing past them has been looked at
-and no input has been shown to reach it (the pad exercise used another core's
-wire order). Lag frames are not detected yet: every frame is counted.
+The interpreter runs this game's boot at about six times real time on this
+machine, sandboxed, so speed is not what the code generators are needed for
+yet. A 3D scene has not been measured.
 
 ## ArcadeDuck (chimera#221, second half)
 
@@ -230,6 +317,9 @@ by one) have to be read first.
 - **`g_scm_*` and `__DATE__`.** Upstream stamps its build from git and from
   the compiler's clock. Both are constants here, or two builds of one commit
   would be two packages.
+- **`chimera-run --frames` does nothing without `--record`.** A bare run
+  with an empty movie plays zero frames and dumps the machine as it booted;
+  a "divergence" was chased that was frame 0 compared with frame 1800.
 - **The repository's own files are MIT, with two exceptions.**
   `waterbox/host.cpp` and `waterbox/audio-stream.cpp` are made from upstream's
   source and say GPL-3.0 at the top. `LICENSE` has the note.

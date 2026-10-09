@@ -18,31 +18,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
-/* The wire this core declares: EIGHT slots, in PCSX2's unified-slot order.
- * Unified 0 and 1 are the two physical ports and 2..7 are the six a multitap
- * adds, which is the order a game sees them in.
- *
- * A slot's block is the DualShock 2's seventeen - the d-pad, start and select,
- * the four face buttons, the four shoulders, the two stick clicks and the
- * analog toggle - and the two PHYSICAL ports carry twenty-six more for the
- * instruments and the light gun, so the blocks are NOT the same size.
- * GATE_SLOT_BASE is the only honest way to index one.
+/* The wire this core declares: one block of seventeen per controller port,
+ * the DualShock's own -
  *
  *   0 Up  1 Down  2 Left  3 Right  4 Start  5 Select
  *   6 Square  7 Cross  8 Circle  9 Triangle
  *   10 L1  11 R1  12 L2  13 R2  14 L3  15 R3  16 Analog
- *   17..20 Negcon A B I II          21..22 Strum Up Down
- *   23..27 frets green red yellow blue orange
- *   28..36 pop'n white/yellow/green/blue left, red, blue/green/yellow/white right
- *   37 gun Trigger  38..40 gun A B C  41 gun Offscreen  42 gun Recalibrate
  *
- * and per slot four axes (LX LY RX RY), the two ports six more (Dial, Twist,
- * Whammy, Tilt, Gun X, Gun Y). */
+ * and per port four axes (LX LY RX RY), each the byte the pad reports: 0..255,
+ * 128 at rest. The macro names are inherited from the PlayStation 2 core's
+ * harness, which this one was made from; a "slot" is a port here. */
 #define GATE_DS2_BTNS 17
-#define GATE_PORT_BTNS 43
+#define GATE_PORT_BTNS 17
 #define GATE_PORTS 2
-#define GATE_SLOTS 8
+#define GATE_SLOTS 2
 #define GATE_BTN_COUNT (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS))
 #define GATE_SLOT_BASE(slot) \
 	((slot) < GATE_PORTS ? (slot) * GATE_PORT_BTNS \
@@ -75,6 +66,15 @@ struct gate_core
 	void (*pre_frame)(void);
 	/* optional: turn the core's drawing on and off (the turbo leg); may be NULL */
 	void (*set_rendering)(int on);
+	/* optional: where the MACHINE is, as a number - its clock and its program
+	 * counter. Folded in every frame, so two runs that part company are told
+	 * apart on the frame they part and not when a picture finally shows it;
+	 * memory domains are only hashed once, at the end. May be NULL. */
+	uint64_t (*machine_digest)(void);
+	/* optional: keep the whole machine, and put it back (the rewind leg; the
+	 * sandbox driver's). NULL where there is no state to take. */
+	void (*state_save)(void);
+	void (*state_load)(void);
 };
 
 struct gate_opts
@@ -104,6 +104,14 @@ struct gate_opts
 	 * the answer is what the machine did about it. */
 	struct { int index; int value; } hold[GATE_MAX_PRESSES];
 	int holds;
+	/* --stall <frame>:<ms>: make the HOST wait before one frame. A machine on
+	 * its own clock cannot tell; one that reads the wall can (the clock leg). */
+	long stallFrame, stallMs;
+	/* --rewind <from>:<at>: keep the machine at frame <from>, run on to frame
+	 * <at>, put it back and run those frames again. The digests must be the
+	 * straight run's: whatever the machine kept somewhere a state does not
+	 * reach is, by frame <at>, no longer what it was at <from>. */
+	long rewindFrom, rewindAt;
 	int turbo;            /* nonzero: draw nothing for the first half of the run */
 	long turboSettle;     /* frames to let the picture settle before hashing it */
 };
@@ -278,7 +286,12 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 	if (sol.count > 0 && frames < sol.count)
 		frames = sol.count;
 
-	uint64_t vh = 0, ah = 0;
+	uint64_t vh = 0, ah = 0, mh = 0;
+	/* the rewind leg: the digests as they stood when the state was kept */
+	uint64_t kept_vh = 0, kept_ah = 0, kept_mh = 0, kept_th = 0;
+	long kept_lag = 0;
+	int rewound = 0;
+	uint8_t kept_prev[GATE_BTN_COUNT];
 	/* the second half of the run, hashed separately: see the turbo hook. The
 	 * settle window is for a machine whose picture is built from more than
 	 * one frame - an interlaced display weaves two fields - where the first
@@ -294,6 +307,28 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 
 	for (long f = 0; f < frames; f++)
 	{
+		if (o->rewindAt > o->rewindFrom && c->state_save && c->state_load && !rewound)
+		{
+			if (f == o->rewindFrom)
+			{
+				c->state_save();
+				kept_vh = vh; kept_ah = ah; kept_mh = mh; kept_th = th; kept_lag = lag;
+				memcpy(kept_prev, prev, sizeof prev);
+			}
+			else if (f == o->rewindAt)
+			{
+				c->state_load();
+				vh = kept_vh; ah = kept_ah; mh = kept_mh; th = kept_th; lag = kept_lag;
+				/* The wires as the HARNESS last set them are not what the kept
+				 * machine was told: say every one again, as a frontend does. */
+				memcpy(prev, kept_prev, sizeof prev);
+				for (int i = 0; i < GATE_BTN_COUNT; i++)
+					c->set_button(i, prev[i]);
+				rewound = 1;
+				f = o->rewindFrom;
+			}
+		}
+
 		memset(buttons, 0, sizeof buttons);
 		if (f < sol.count)
 		{
@@ -328,19 +363,12 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 
 		if (o->wiggleAxes && c->set_axis)
 		{
-			/* a deterministic wander: mouse deltas -2..2, gun coords circling
-			 * the middle of the screen; the same values in both drivers */
+			/* a deterministic wander of both sticks of both pads: bytes
+			 * anywhere in the pad's range, the same in both drivers */
 			uint64_t w = (uint64_t)f * 2862933555777941757ULL + 3037000493ULL;
 			w ^= w >> 29;
-			c->set_axis(0, (int32_t)(w % 5) - 2);
-			c->set_axis(1, (int32_t)((w >> 8) % 5) - 2);
-			c->set_axis(2, 96 + (int32_t)((w >> 16) % 64));
-			c->set_axis(3, 88 + (int32_t)((w >> 24) % 64));
-			c->set_axis(4, 96 + (int32_t)((w >> 32) % 64));
-			c->set_axis(5, 88 + (int32_t)((w >> 40) % 64));
-			/* the device buttons (wire 98..107) ride the same wander */
-			for (int k = 98; k < GATE_BTN_COUNT; k++)
-				buttons[k] = (w >> (48 + (k - 98))) & 1;
+			for (int k = 0; k < 8; k++)
+				c->set_axis(k, (int32_t)((w >> (k * 8)) & 0xFF));
 		}
 
 		/* turbo: draw nothing for the first half of the run, then draw the
@@ -350,6 +378,12 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 		 * not on every frame. */
 		if (o->turbo && c->set_rendering)
 			c->set_rendering(f >= tail);
+
+		if (o->stallMs > 0 && f == o->stallFrame)
+		{
+			struct timespec ts = { o->stallMs / 1000, (o->stallMs % 1000) * 1000000L };
+			nanosleep(&ts, NULL);
+		}
 
 		if (c->pre_frame)
 			c->pre_frame();
@@ -376,6 +410,11 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 			th = gate_fnv(th, video, (size_t)w * h * 4);
 		}
 		ah = gate_fnv(ah, audio, (size_t)n * 2 * sizeof(int16_t));
+		if (c->machine_digest)
+		{
+			const uint64_t m = c->machine_digest();
+			mh = gate_fnv(mh, &m, sizeof m);
+		}
 		if (!c->input_was_read())
 			lag++;
 		if (o->screenshotPath && f == frames - 1)
@@ -410,6 +449,8 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 	printf("tailVideoHash=%016llx\n", (unsigned long long)th);
 	printf("audioHash=%016llx\n", (unsigned long long)ah);
 	printf("lagFrames=%ld\n", lag);
+	if (c->machine_digest)
+		printf("machineHash=%016llx\n", (unsigned long long)mh);
 	int nd = c->domain_count();
 	for (int i = 0; i < nd; i++)
 	{
@@ -468,6 +509,10 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 	o->dumpDomain = NULL;
 	o->dumpPath = NULL;
 	o->savedataDir = NULL;
+	o->rewindFrom = 0;
+	o->rewindAt = 0;
+	o->stallFrame = 0;
+	o->stallMs = 0;
 	o->exercisePad = 0;
 	o->wiggleAxes = 0;
 	o->presses = 0;
@@ -514,6 +559,16 @@ static int gate_parse_opts(int argc, char **argv, int first, struct gate_opts *o
 			o->hold[o->holds].index = index;
 			o->hold[o->holds].value = value;
 			o->holds++;
+		}
+		else if (!strcmp(argv[i], "--stall") && i + 1 < argc)
+		{
+			if (sscanf(argv[++i], "%ld:%ld", &o->stallFrame, &o->stallMs) != 2)
+			{ fprintf(stderr, "--stall wants <frame>:<ms>\n"); return 0; }
+		}
+		else if (!strcmp(argv[i], "--rewind") && i + 1 < argc)
+		{
+			if (sscanf(argv[++i], "%ld:%ld", &o->rewindFrom, &o->rewindAt) != 2)
+			{ fprintf(stderr, "--rewind wants <from>:<at>\n"); return 0; }
 		}
 		else if (!strcmp(argv[i], "--turbo")) o->turbo = 1;
 		else if (!strcmp(argv[i], "--turbo-settle") && i + 1 < argc) o->turboSettle = strtol(argv[++i], 0, 0);		else if (!strcmp(argv[i], "--rerecord")) ; /* run-wbx's; ignored here */

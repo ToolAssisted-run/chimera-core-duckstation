@@ -104,6 +104,11 @@ static i32fn g_GetSaveDataFileCount;
 static ptrfn_i32 g_GetSaveDataFileName, g_GetSaveDataFileBuffer;
 static i64fn_i32 g_GetSaveDataFileSize;
 static voidfn_i g_SetRenderingEnabled;
+typedef void (MB_GUEST_ABI *voidfn)(void);
+typedef uint64_t (MB_GUEST_ABI *u64fn)(void);
+/* optional exports: absent in a core that has nothing to say (see proc_optional) */
+static voidfn g_StateSaving, g_StateLoaded;
+static u64fn g_ChimeraMachineDigest;
 static int g_rerecord;
 static membuf g_state;
 
@@ -114,6 +119,17 @@ static uintptr_t proc(mb_host *h, const char *n)
 	if (r.error_message[0]) { fprintf(stderr, "proc %s: %s\n", n, r.error_message); exit(2); }
 	if (!r.data) { fprintf(stderr, "missing required export %s\n", n); exit(2); }
 	return r.data;
+}
+
+/* An export a core may leave out. Three answers, not two: there, not there,
+ * and could not be asked - which stops the run, because "could not be asked"
+ * read as "not there" is a feature silently switched off. */
+static uintptr_t proc_optional(mb_host *h, const char *n)
+{
+	mb_return r;
+	wbx_get_proc_addr(h, n, &r);
+	if (r.error_message[0]) { fprintf(stderr, "proc %s: %s\n", n, r.error_message); exit(2); }
+	return (uintptr_t)r.data;
 }
 
 static int core_init(void) { return g_Init(); }
@@ -146,19 +162,42 @@ static const char *core_domain_name(int i) { return (const char *)g_GetMemoryDom
 static const uint8_t *core_domain_ptr(int i) { return (const uint8_t *)g_GetMemoryDomainPtr(i); }
 static int64_t core_domain_size(int i) { return g_GetMemoryDomainSize(i); }
 
+/* A state, taken and restored the way the engine does it: the core is told
+ * before one is taken (StateSaving) and after one is put back (StateLoaded),
+ * if it exports those. A driver that left them out would be testing a core
+ * the frontend never runs. */
+static void take_state(membuf *into)
+{
+	mb_return r;
+	if (g_StateSaving) g_StateSaving();
+	into->len = 0;
+	wbx_save_state(g_host, mem_write, (uintptr_t)into, &r);
+	if (r.error_message[0]) { fprintf(stderr, "save_state: %s\n", r.error_message); exit(1); }
+}
+
+static void put_state(membuf *from)
+{
+	mb_return r;
+	from->pos = 0;
+	wbx_load_state(g_host, mem_read, (uintptr_t)from, &r);
+	if (r.error_message[0]) { fprintf(stderr, "load_state: %s\n", r.error_message); exit(1); }
+	gl_state_loaded();
+	if (g_StateLoaded) g_StateLoaded();
+}
+
 static void core_pre_frame(void)
 {
 	if (!g_rerecord)
 		return;
-	mb_return r;
-	g_state.len = 0;
-	wbx_save_state(g_host, mem_write, (uintptr_t)&g_state, &r);
-	if (r.error_message[0]) { fprintf(stderr, "save_state: %s\n", r.error_message); exit(1); }
-	g_state.pos = 0;
-	wbx_load_state(g_host, mem_read, (uintptr_t)&g_state, &r);
-	if (r.error_message[0]) { fprintf(stderr, "load_state: %s\n", r.error_message); exit(1); }
-	gl_state_loaded();
+	take_state(&g_state);
+	put_state(&g_state);
 }
+
+/* the rewind leg's: one state kept across many frames */
+static membuf g_kept;
+static void core_state_save(void) { take_state(&g_kept); }
+static void core_state_load(void) { put_state(&g_kept); }
+static uint64_t core_machine_digest(void) { return g_ChimeraMachineDigest(); }
 
 int main(int argc, char **argv)
 {
@@ -179,21 +218,10 @@ int main(int argc, char **argv)
 	FILE *wf = fopen(wbxPath, "rb");
 	if (!wf) { perror(wbxPath); return 1; }
 
-	/* matches waterbox.config memoryLayoutMiB. A Dreamcast is BIG: 16MB of
-	 * system RAM, 16MB of video RAM, 8MB for the AICA and 32MB for the Elan -
-	 * about 72MB of machine before Flycast has allocated anything of its own,
-	 * and with no virtual memory those are ordinary allocations inside the
-	 * guest's heap. Sizing this like an 8-bit core is how the first sandboxed
-	 * run died: an allocation quietly failed and the machine wrote through a
-	 * null base. */
-	/* A PlayStation 2 needs more room than any core here so far, and most of it
-	 * is the console's memory: 285MB is the machine (32MB of EE RAM, the bios
-	 * and rom areas, the IOP, the vector units, and the vtlb's two page tables
-	 * over a 4GB address space), and 305MB is the recompiler cache region,
-	 * which this build reserves and never writes. The sandbox charges for pages
-	 * that are TOUCHED, so most of that is address space rather than memory -
-	 * but the arena has to be big enough to hold it. */
-	mb_memory_layout_template layout = { 512u << 20, 16u << 20, 64u << 20, 16u << 20, 3072u << 20 };
+	/* matches waterbox.config memoryLayoutMiB: sbrk, sealed, invisible, plain,
+	 * mmap. Keep the two in step - a driver with more room than the frontend
+	 * gives is a gate that passes where a user's run dies. */
+	mb_memory_layout_template layout = { 512u << 20, 16u << 20, 64u << 20, 16u << 20, 1024u << 20 };
 	freader fr = { wf };
 	mb_return r;
 	wbx_create_host(&layout, "core.wbx", file_read, (uintptr_t)&fr, &r);
@@ -250,6 +278,9 @@ int main(int argc, char **argv)
 	g_GetSaveDataFileName = (ptrfn_i32)proc(g_host, "GetSaveDataFileName");
 	g_GetSaveDataFileSize = (i64fn_i32)proc(g_host, "GetSaveDataFileSize");
 	g_GetSaveDataFileBuffer = (ptrfn_i32)proc(g_host, "GetSaveDataFileBuffer");
+	g_ChimeraMachineDigest = (u64fn)proc(g_host, "ChimeraMachineDigest");
+	g_StateSaving = (voidfn)proc_optional(g_host, "StateSaving");
+	g_StateLoaded = (voidfn)proc_optional(g_host, "StateLoaded");
 
 	/* The GPU bridge (experiment; see waterbox/gl-bridge.h). Off unless
 	 * CHIMERA_GPU=1 asks for it, and even then a machine with no usable driver
@@ -307,6 +338,9 @@ int main(int argc, char **argv)
 		.savedata_buffer = core_savedata_buffer,
 		.pre_frame = core_pre_frame,
 		.set_rendering = core_set_rendering,
+		.machine_digest = core_machine_digest,
+		.state_save = core_state_save,
+		.state_load = core_state_load,
 	};
 
 	/* Init runs before Seal - the loaded machine is the sealed baseline */

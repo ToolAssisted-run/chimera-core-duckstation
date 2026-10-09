@@ -21,6 +21,7 @@
 #include "core/bus.h"
 #include "core/controller.h"
 #include "core/cpu_core.h"
+#include "core/game_database.h"
 #include "core/gpu.h"
 #include "core/host.h"
 #include "core/pad.h"
@@ -43,8 +44,13 @@
 extern "C" int ChimeraAudioTake(int16_t* out, int max_frames);
 // waterbox/memory-device.cpp
 const u8* ChimeraMemoryTextureBits(GPUTexture* texture, u32* pitch);
+// patches: "the sandbox file system is flat" - a second name for one file
+extern "C" void ChimeraFileAlias(const char* from, const char* to);
 // waterbox/stubs/frontend.cpp: say on stderr what upstream would have drawn
 extern "C" int chimera_verbose;
+
+// set from upstream's pad code, so it has a name outside this file's namespace
+static int g_inputRead;
 
 namespace {
 
@@ -54,7 +60,7 @@ namespace {
 // VRAM, in a raster a little wider than that when no overscan is cropped.
 constexpr int MAX_WIDTH = 768;
 constexpr int MAX_HEIGHT = 576;
-constexpr int MAX_AUDIO_FRAMES = 44100;
+constexpr int MAX_AUDIO_FRAMES = 2048; // waterbox.config's audio.samplesPerFrame
 
 char g_loadError[512];
 uint32_t* g_video;
@@ -62,12 +68,75 @@ int g_videoWidth = 320;
 int g_videoHeight = 240;
 int16_t* g_soundOut;
 int g_nsamples;
-int g_inputRead;
-int g_vsyncNum = 60;
-int g_vsyncDen = 1;
+int g_vsyncNum = 53693175;
+int g_vsyncDen = 897619;
 bool g_booted;
 
 std::unique_ptr<MemorySettingsInterface> g_settingsLayer;
+
+// ---- the wire ----------------------------------------------------------------
+
+// What waterbox.config declares, in its order: per port the DualShock's
+// seventeen buttons and its four stick bytes. A digital pad is the first
+// sixteen; a port with nothing in it is none of them.
+constexpr int PORTS = 2;
+constexpr int PORT_BUTTONS = 17;
+constexpr int PORT_AXES = 4;
+constexpr int WIRE_ANALOG = 16;
+
+// wire order -> upstream's bind index (the same numbers for the digital pad
+// and the DualShock, which is the order the pad's own report has them in)
+constexpr u8 kBind[PORT_BUTTONS] = {
+  4,  // Up
+  6,  // Down
+  7,  // Left
+  5,  // Right
+  3,  // Start
+  0,  // Select
+  15, // Square
+  14, // Cross
+  13, // Circle
+  12, // Triangle
+  10, // L1
+  11, // R1
+  8,  // L2
+  9,  // R2
+  1,  // L3
+  2,  // R3
+  16, // Analog
+};
+
+ControllerType g_portType[PORTS] = {ControllerType::None, ControllerType::None};
+u8 g_held[PORTS][PORT_BUTTONS];
+u8 g_stick[PORTS][PORT_AXES] = {{128, 128, 128, 128}, {128, 128, 128, 128}};
+
+ControllerType ParsePort(const char* key, ControllerType dflt)
+{
+  char v[24] = "";
+  if (wbx_setting_str(key, v, sizeof(v)) < 0)
+    return dflt;
+  if (!strcmp(v, "none"))
+    return ControllerType::None;
+  if (!strcmp(v, "digital"))
+    return ControllerType::DigitalController;
+  if (!strcmp(v, "dualshock"))
+    return ControllerType::AnalogController;
+  return dflt;
+}
+
+// One stick byte, put where the pad will report it from. Upstream's pad takes
+// each direction of a stick as a separate half axis, scales it to 0..255 and
+// merges the pair: 127 + (positive + 1) / 2, or 127 - negative / 2. Inverted,
+// every byte has one pair that produces it, and the half-unit added below is
+// what makes the float survive the truncation on the other side.
+void SetStickByte(Controller* c, u32 positive, u32 negative, u8 value)
+{
+  const u32 pos = (value >= 128) ? (2u * value - 255u) : 0u;
+  const u32 neg = (value >= 128) ? 0u : (2u * (127u - value));
+  const u32 first = 17u; // AnalogController::Button::Count
+  c->SetBindState(first + negative, (static_cast<float>(neg) + 0.5f) / 255.0f);
+  c->SetBindState(first + positive, (static_cast<float>(pos) + 0.5f) / 255.0f);
+}
 
 void Fail(const char* what, const Error& error)
 {
@@ -77,6 +146,57 @@ void Fail(const char* what, const Error& error)
 bool Exists(const char* name)
 {
   return FileSystem::FileExists(name);
+}
+
+// ---- a file with no name ------------------------------------------------------
+
+// A file the frontend was handed directly - dropped on it, or named on a
+// command line - is mounted as "disc": no project, no slot map, no extension.
+// DuckStation decides what an image is by its extension, so the bytes are
+// asked instead and the file is given the name it should have had. Returns
+// the name to boot, or null with g_loadError saying why not.
+const char* NameTheBareFile()
+{
+  static char name[32];
+  u8 head[16] = {};
+  std::FILE* f = std::fopen("disc", "rb");
+  if (!f)
+    return nullptr;
+  const size_t got = std::fread(head, 1, sizeof(head), f);
+  std::fclose(f);
+
+  static const u8 kSync[12] = {0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
+  const char* ext;
+  if (got >= 8 && !std::memcmp(head, "MComprHD", 8))
+    ext = "chd";
+  else if (got >= 8 && !std::memcmp(head, "PS-X EXE", 8))
+    ext = "exe";
+  else if (got >= 4 && !std::memcmp(head, "\0PBP", 4))
+    ext = "pbp";
+  else if (got >= 4 && !std::memcmp(head, "ECM\0", 4))
+    ext = "ecm";
+  else if (got >= 12 && !std::memcmp(head, kSync, 12))
+    ext = "bin";
+  else
+  {
+    // Not a raw sector and nothing with a signature. A cue sheet is the
+    // likely one: text, and useless alone, because the files it names were
+    // not mounted with it.
+    bool text = (got > 0);
+    for (size_t i = 0; i < got; i++)
+      text = text && (head[i] == 0x09 || head[i] == 0x0A || head[i] == 0x0D || (head[i] >= 0x20 && head[i] < 0x7F) ||
+                      head[i] >= 0x80);
+    snprintf(g_loadError, sizeof(g_loadError),
+             text ? "this is a cue sheet, and it was opened without the files it names. Make a project and put the "
+                    ".cue in its Disc slot: the frontend then brings every file the sheet refers to." :
+                    "this file is not a disc image this core knows: not a CHD, a PBP, an ECM, a PlayStation "
+                    "executable, or raw 2352-byte CD sectors.");
+    return nullptr;
+  }
+
+  snprintf(name, sizeof(name), "disc.%s", ext);
+  ChimeraFileAlias(name, "disc");
+  return name;
 }
 
 // ---- the picture ------------------------------------------------------------
@@ -166,8 +286,24 @@ void ApplySettings(SettingsInterface& si)
                     Settings::GetDisplayDeinterlacingModeName(DisplayDeinterlacingMode::Disabled));
   si.SetBoolValue("Display", "24BitChromaSmoothing", false);
 
-  si.SetStringValue("Pad1", "Type", Controller::GetControllerInfo(ControllerType::DigitalController)->name);
-  si.SetStringValue("Pad2", "Type", Controller::GetControllerInfo(ControllerType::DigitalController)->name);
+  // What is in each port. A DualShock in the first and nothing in the second
+  // is what a fresh DuckStation has; a game its database says cannot use a
+  // DualShock is given the digital pad instead, by upstream, at boot.
+  g_portType[0] = ParsePort("port1", ControllerType::AnalogController);
+  g_portType[1] = ParsePort("port2", ControllerType::None);
+  for (int port = 0; port < PORTS; port++)
+  {
+    const std::string section = Controller::GetSettingsSection(static_cast<u32>(port));
+    si.SetStringValue(section.c_str(), "Type", Controller::GetControllerInfo(g_portType[port])->name);
+    // A stick byte is the byte the movie says: no curve, no dead zone, and no
+    // stick standing in for the d-pad - that last one is an emulator's
+    // convenience, and a pad in digital mode does not report its sticks.
+    si.SetFloatValue(section.c_str(), "AnalogSensitivity", 1.0f);
+    si.SetFloatValue(section.c_str(), "AnalogDeadzone", 0.0f);
+    si.SetBoolValue(section.c_str(), "AnalogDPadInDigitalMode", false);
+    si.SetIntValue(section.c_str(), "InvertLeftStick", 0);
+    si.SetIntValue(section.c_str(), "InvertRightStick", 0);
+  }
   si.SetStringValue("MemoryCards", "Card1Type", Settings::GetMemoryCardTypeName(MemoryCardType::NonPersistent));
   si.SetStringValue("MemoryCards", "Card2Type", Settings::GetMemoryCardTypeName(MemoryCardType::None));
   si.SetStringValue("ControllerPorts", "MultitapMode", Settings::GetMultitapModeName(MultitapMode::Disabled));
@@ -200,6 +336,21 @@ void ApplySettings(SettingsInterface& si)
   si.SetBoolValue("Logging", "LogToDebug", false);
   si.SetBoolValue("Logging", "LogToWindow", false);
   si.SetStringValue("Logging", "LogLevel", Settings::GetLogLevelName(verbose ? LOGLEVEL_VERBOSE : LOGLEVEL_ERROR));
+
+  // Which market the console was made for. "auto" is upstream's own: the
+  // disc decides, and an empty tray is a North American console.
+  {
+    char region[16] = "auto";
+    wbx_setting_str("region", region, sizeof(region));
+    ConsoleRegion r = ConsoleRegion::Auto;
+    if (!strcmp(region, "ntsc-u"))
+      r = ConsoleRegion::NTSC_U;
+    else if (!strcmp(region, "ntsc-j"))
+      r = ConsoleRegion::NTSC_J;
+    else if (!strcmp(region, "pal"))
+      r = ConsoleRegion::PAL;
+    si.SetStringValue("Console", "Region", Settings::GetConsoleRegionName(r));
+  }
 
   // one firmware, whatever the region: the project chose it
   si.SetStringValue("BIOS", "SearchDirectory", "");
@@ -245,6 +396,12 @@ extern "C" uint64_t ChimeraClockNanoseconds(void)
   return (ticks / hz) * UINT64_C(1000000000) + ((ticks % hz) * UINT64_C(1000000000)) / hz;
 }
 
+// patches: "a lag frame is a frame nobody polled". A pad answered the console.
+extern "C" void chimera_input_was_read(void)
+{
+  g_inputRead = 1;
+}
+
 // Host::FrameDone: the machine has finished a frame and is still inside it.
 extern "C" void ChimeraFrameDone(void)
 {
@@ -280,6 +437,22 @@ ECL_EXPORT int Init(void)
     return 0;
   }
 
+  // The per-title database, loaded HERE rather than where upstream first asks
+  // for it: before the guest is sealed, so it costs nothing in every state
+  // afterwards, and before the machine is asked for anything else, so a core
+  // with an EMPTY database can be caught with no BIOS and no disc at all.
+  // "gamedb_probe" is a question put to the core, not a setting: it is not in
+  // waterbox.config, it changes nothing, and a movie must not carry it.
+  GameDatabase::EnsureLoaded();
+  {
+    char probe[32] = "";
+    if (wbx_setting_str("gamedb_probe", probe, sizeof(probe)) > 0)
+    {
+      const GameDatabase::Entry* const entry = GameDatabase::GetEntryForSerial(probe);
+      std::fprintf(stderr, "duckstation: gamedb probe: %s = %s\n", probe, entry ? entry->title.c_str() : "(not on record)");
+    }
+  }
+
   if (!Exists("bios"))
   {
     snprintf(g_loadError, sizeof(g_loadError),
@@ -292,9 +465,17 @@ ECL_EXPORT int Init(void)
   SystemBootParameters params;
   char name[512];
   if (wbx_slot_first("disc", name, sizeof(name)) != nullptr && name[0] != '\0')
+  {
+    // a project: the file is mounted under its own name, extension and all
     params.filename = name;
+  }
   else if (Exists("disc"))
-    params.filename = "disc";
+  {
+    const char* const bare = NameTheBareFile();
+    if (!bare)
+      return 0;
+    params.filename = bare;
+  }
 
   params.override_fullscreen = false;
   params.override_start_paused = false;
@@ -305,13 +486,26 @@ ECL_EXPORT int Init(void)
     return 0;
   }
 
-  const float hz = g_gpu->ComputeVerticalFrequency();
-  if (hz < 55.0f)
+  // The field rate, exactly: the video crystal over the ticks in a line times
+  // the lines in a field, as the machine booted. 59.826 Hz on an NTSC
+  // console, 49.761 on a PAL one.
   {
-    // PAL: 49.76 Hz upstream computes; the frontend is told the rational the
-    // console's own counters give (see docs/PLAN.md, "The field rate").
-    g_vsyncNum = 50;
-    g_vsyncDen = 1;
+    GPU::ChimeraDisplay d;
+    g_gpu->ChimeraGetDisplay(&d);
+    int64_t num = g_gpu->GetCRTCFrequency();
+    int64_t den = static_cast<int64_t>(d.horizontal_total) * d.vertical_total;
+    if (den > 0)
+    {
+      int64_t a = num, b = den;
+      while (b != 0)
+      {
+        const int64_t t = a % b;
+        a = b;
+        b = t;
+      }
+      g_vsyncNum = static_cast<int>(num / a);
+      g_vsyncDen = static_cast<int>(den / a);
+    }
   }
 
   g_booted = true;
@@ -320,15 +514,98 @@ ECL_EXPORT int Init(void)
 
 ECL_EXPORT void SetButton(int32_t index, int32_t state)
 {
-  // wire: sixteen digital-pad buttons per port, upstream's own order
-  const u32 port = static_cast<u32>(index) / 16u;
-  const u32 bind = static_cast<u32>(index) % 16u;
-  if (Controller* const c = Pad::GetController(port))
-    c->SetBindState(bind, state ? 1.0f : 0.0f);
+  if (index < 0 || index >= PORTS * PORT_BUTTONS)
+    return;
+
+  const int port = index / PORT_BUTTONS;
+  const int wire = index % PORT_BUTTONS;
+  const u8 held = state ? 1 : 0;
+  const u8 was = g_held[port][wire];
+  g_held[port][wire] = held;
+
+  Controller* const c = Pad::GetController(static_cast<u32>(port));
+  if (!c)
+    return;
+
+  if (wire == WIRE_ANALOG)
+  {
+    // The Analog button is a toggle on the pad itself, and upstream toggles
+    // every time it is TOLD the button is down: it is told once per press.
+    if (held && !was && c->GetType() == ControllerType::AnalogController)
+      c->SetBindState(kBind[wire], 1.0f);
+    return;
+  }
+
+  c->SetBindState(kBind[wire], held ? 1.0f : 0.0f);
+}
+
+/* Which of the declared wires the machine can see: the frontend greys out the
+ * rest. What a port holds is decided at boot (a setting, and upstream's game
+ * database on top of it), so the controller that is there is asked. */
+ECL_EXPORT int IsButtonActive(int32_t index)
+{
+  if (index < 0 || index >= PORTS * PORT_BUTTONS)
+    return 0;
+
+  const Controller* const c = Pad::GetController(static_cast<u32>(index / PORT_BUTTONS));
+  if (!c)
+    return 0;
+
+  const int wire = index % PORT_BUTTONS;
+  switch (c->GetType())
+  {
+    case ControllerType::AnalogController:
+      return 1;
+    case ControllerType::DigitalController:
+      // a digital pad has no stick to click and no Analog button
+      return (wire != 14 && wire != 15 && wire != WIRE_ANALOG) ? 1 : 0;
+    default:
+      return 0;
+  }
+}
+
+ECL_EXPORT int IsAxisActive(int32_t index)
+{
+  if (index < 0 || index >= PORTS * PORT_AXES)
+    return 0;
+
+  const Controller* const c = Pad::GetController(static_cast<u32>(index / PORT_AXES));
+  return (c && c->GetType() == ControllerType::AnalogController) ? 1 : 0;
 }
 
 ECL_EXPORT void SetAxis(int32_t index, int32_t value)
 {
+  if (index < 0 || index >= PORTS * PORT_AXES)
+    return;
+
+  const int port = index / PORT_AXES;
+  const int axis = index % PORT_AXES;
+  const u8 byte = static_cast<u8>(std::clamp<int32_t>(value, 0, 255));
+  if (g_stick[port][axis] == byte)
+    return;
+  g_stick[port][axis] = byte;
+
+  Controller* const c = Pad::GetController(static_cast<u32>(port));
+  if (!c || c->GetType() != ControllerType::AnalogController)
+    return;
+
+  // AnalogController::HalfAxis: LLeft LRight LDown LUp RLeft RRight RDown RUp.
+  // A stick byte grows to the right and downwards.
+  switch (axis)
+  {
+    case 0:
+      SetStickByte(c, 1, 0, byte);
+      break;
+    case 1:
+      SetStickByte(c, 2, 3, byte);
+      break;
+    case 2:
+      SetStickByte(c, 5, 4, byte);
+      break;
+    default:
+      SetStickByte(c, 6, 7, byte);
+      break;
+  }
 }
 
 ECL_EXPORT void FrameAdvance(uint64_t packed)
@@ -345,6 +622,19 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
 
   ComposeFrame();
   g_nsamples = ChimeraAudioTake(g_soundOut, MAX_AUDIO_FRAMES);
+}
+
+/* For the gate, not for the frontend: where the machine is, as one number.
+ * Its clock and where its processor is about to execute, which two runs that
+ * have parted company cannot share for long. */
+ECL_EXPORT uint64_t ChimeraMachineDigest(void)
+{
+  uint64_t h = static_cast<uint64_t>(TimingEvents::GetGlobalTickCounter());
+  h = (h * UINT64_C(1099511628211)) ^ CPU::g_state.pc;
+  h = (h * UINT64_C(1099511628211)) ^ CPU::g_state.npc;
+  for (u32 i = 0; i < static_cast<u32>(CPU::Reg::count); i++)
+    h = (h * UINT64_C(1099511628211)) ^ CPU::g_state.regs.r[i];
+  return h;
 }
 
 ECL_EXPORT void SetRenderingEnabled(int on)

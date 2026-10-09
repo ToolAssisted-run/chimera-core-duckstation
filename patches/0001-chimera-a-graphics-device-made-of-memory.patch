@@ -1,8 +1,8 @@
 diff --git a/src/core/gpu.h b/src/core/gpu.h
-index 76cb876..bc4b6d7 100644
+index 76cb876..71632c7 100644
 --- a/src/core/gpu.h
 +++ b/src/core/gpu.h
-@@ -176,6 +176,38 @@ public:
+@@ -176,6 +176,41 @@ public:
    float ComputeVerticalFrequency() const;
    float ComputeDisplayAspectRatio() const;
  
@@ -17,6 +17,7 @@ index 76cb876..bc4b6d7 100644
 +    u32 display_width, display_height;
 +    u32 origin_left, origin_top;
 +    u32 vram_width, vram_height;
++    u32 horizontal_total, vertical_total;
 +    u32 field;
 +    bool interlaced;
 +  };
@@ -33,6 +34,8 @@ index 76cb876..bc4b6d7 100644
 +    out->origin_top = m_crtc_state.display_origin_top;
 +    out->vram_width = m_crtc_state.display_vram_width;
 +    out->vram_height = m_crtc_state.display_vram_height;
++    out->horizontal_total = m_crtc_state.horizontal_total;
++    out->vertical_total = m_crtc_state.vertical_total;
 +    out->field = GetInterlacedDisplayField();
 +    out->interlaced = IsInterlacedDisplayEnabled();
 +  }

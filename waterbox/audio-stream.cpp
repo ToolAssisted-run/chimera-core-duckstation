@@ -286,7 +286,9 @@ bool AudioStreamParameters::operator!=(const AudioStreamParameters& rhs) const
   return !(*this == rhs);
 }
 
-// What the frame sounded like: interleaved stereo frames, taken once.
+// What the frame sounded like: interleaved stereo frames, taken once. What
+// does not fit in the caller's buffer is kept for the next frame - a frame
+// the machine ran long is late sound, not lost sound.
 int ChimeraAudioTake(int16_t* out, int max_frames)
 {
   if (!s_live_buffer)
@@ -294,6 +296,8 @@ int ChimeraAudioTake(int16_t* out, int max_frames)
 
   const u32 count = (s_live_wpos < static_cast<u32>(max_frames)) ? s_live_wpos : static_cast<u32>(max_frames);
   std::memcpy(out, s_live_buffer, sizeof(s16) * 2 * count);
-  s_live_wpos = 0;
+  if (count < s_live_wpos)
+    std::memmove(s_live_buffer, s_live_buffer + static_cast<size_t>(count) * 2, sizeof(s16) * 2 * (s_live_wpos - count));
+  s_live_wpos -= count;
   return static_cast<int>(count);
 }

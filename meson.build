@@ -38,6 +38,7 @@ defs = [
   '-DCHIMERA_NO_SHADER_TRANSPILER',
   '-DCHIMERA_NO_SHARED_MEMORY',
   '-DCHIMERA_FLAT_FILESYSTEM',
+  '-DCHIMERA_LAG_DETECTION',
   # what upstream's build sets for its bundled assembler
   '-DXBYAK_NO_EXCEPTION=1',
   # Upstream logs when it was compiled. A package is its commit, and two

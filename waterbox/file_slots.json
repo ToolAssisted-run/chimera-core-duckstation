@@ -1,0 +1,24 @@
+{
+  "_comment": "The core-declared file form for chimera's project wizard. A PlayStation project is a disc, or a program to run in place of one. The BIOS is not here: it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
+  "slots": [
+    {
+      "id": "disc",
+      "title": "Disc or program",
+      "min": 1,
+      "max": 1,
+      "formats": [
+        "cue",
+        "chd",
+        "bin",
+        "img",
+        "iso",
+        "pbp",
+        "ecm",
+        "exe",
+        "psexe",
+        "ps-exe"
+      ],
+      "help": "What the console runs. Usually a CD image: a .cue with the .bin files it names beside it, a .chd, a single .bin, .img or .iso of one data track, a PlayStation Store .pbp, or an .ecm. It can also be a PlayStation EXECUTABLE (.exe, .psexe, .ps-exe), which is what homebrew and test programs ship as: the tray stays empty and the console is handed the program once its own ROM has started."
+    }
+  ]
+}

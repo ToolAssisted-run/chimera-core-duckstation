@@ -1,0 +1,88 @@
+{
+  "package": "duckstation",
+  "effectiveTerms": "GPL-3.0",
+  "commercialUse": "allowed under the GPL",
+  "note": "The built core combines this repository's integration with DuckStation as it stood at its last GPL-3.0 commit, and is distributed under the GPL-3.0, which is that DuckStation's own licence and the strongest term in the package. Everything else it links is permissive and travels inside those terms: fmt, fast_float, simpleini, rapidyaml and Dear ImGui are MIT; xxHash, libchdr and Zstandard are BSD; zlib is under the zlib licence; the LZMA SDK is public domain. No BIOS and no game is part of this package - a PlayStation needs a ROM dump the user supplies, and it never enters this repository.",
+  "components": [
+    {
+      "name": "chimera-core-duckstation (integration)",
+      "license": "MIT, and DuckStation's terms (GPL-3.0) for patches/, waterbox/host.cpp and waterbox/audio-stream.cpp",
+      "url": "https://github.com/ToolAssisted-run/chimera-core-duckstation",
+      "commit": "{selfCommit}",
+      "file": "LICENSE",
+      "sourceUrl": "https://github.com/ToolAssisted-run/chimera-core-duckstation/archive/{commit}.tar.gz"
+    },
+    {
+      "name": "DuckStation",
+      "license": "GPL-3.0",
+      "url": "https://github.com/stenzek/duckstation",
+      "commit": "{submodule:extern/duckstation}",
+      "file": "extern/duckstation/LICENSE",
+      "sourceUrl": "https://github.com/stenzek/duckstation/archive/{commit}.tar.gz",
+      "note": "Pinned at the last commit of DuckStation offered under the GPL-3.0 (2024-09-01). Later versions are under CC BY-NC-ND 4.0 and nothing from them is in this package. Its per-title database (data/resources/gamedb.yaml) is compiled into the core."
+    },
+    {
+      "name": "fmt",
+      "license": "MIT",
+      "url": "https://github.com/fmtlib/fmt",
+      "file": "extern/duckstation/dep/fmt/LICENSE.rst"
+    },
+    {
+      "name": "fast_float",
+      "license": "MIT (offered under Apache-2.0 or MIT)",
+      "url": "https://github.com/fastfloat/fast_float",
+      "file": "extern/duckstation/dep/fast_float/LICENSE-MIT"
+    },
+    {
+      "name": "simpleini",
+      "license": "MIT",
+      "url": "https://github.com/brofield/simpleini",
+      "file": "extern/duckstation/dep/simpleini/LICENCE.txt"
+    },
+    {
+      "name": "rapidyaml",
+      "license": "MIT",
+      "url": "https://github.com/biojppm/rapidyaml",
+      "file": "extern/duckstation/dep/rapidyaml/LICENSE.txt"
+    },
+    {
+      "name": "xxHash",
+      "license": "BSD-2-Clause",
+      "url": "https://github.com/Cyan4973/xxHash",
+      "file": "extern/duckstation/dep/xxhash/LICENSE"
+    },
+    {
+      "name": "libchdr",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/rtissera/libchdr",
+      "file": "extern/duckstation/dep/libchdr/LICENSE.txt"
+    },
+    {
+      "name": "LZMA SDK",
+      "license": "Public domain",
+      "url": "https://www.7-zip.org/sdk.html",
+      "file": "extern/duckstation/dep/lzma/LICENSE"
+    },
+    {
+      "name": "Dear ImGui",
+      "license": "MIT",
+      "url": "https://github.com/ocornut/imgui",
+      "file": "extern/duckstation/dep/imgui/LICENSE.txt",
+      "note": "Compiled because DuckStation's own files include it for their debug windows; no context is ever created and nothing is drawn with it."
+    },
+    {
+      "name": "zlib",
+      "license": "Zlib",
+      "url": "https://github.com/madler/zlib",
+      "commit": "{submodule:extern/zlib}",
+      "file": "extern/zlib/LICENSE"
+    },
+    {
+      "name": "Zstandard",
+      "license": "BSD-3-Clause (offered under BSD-3-Clause or GPL-2.0)",
+      "url": "https://github.com/facebook/zstd",
+      "commit": "{submodule:extern/zstd}",
+      "file": "extern/zstd/LICENSE"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+diff --git a/src/core/pad.cpp b/src/core/pad.cpp
+index 763ca4d..032fbb4 100644
+--- a/src/core/pad.cpp
++++ b/src/core/pad.cpp
+@@ -757,6 +757,10 @@ void Pad::BeginTransfer()
+   s_transfer_event.SetPeriodAndSchedule(GetTransferTicks());
+ }
+ 
++#ifdef CHIMERA_LAG_DETECTION
++extern "C" void chimera_input_was_read(void);
++#endif
++
+ void Pad::DoTransfer(TickCount ticks_late)
+ {
+   DEBUG_LOG("Transferring slot {}", s_JOY_CTRL.SLOT.GetValue());
+@@ -858,6 +862,17 @@ void Pad::DoTransfer(TickCount ticks_late)
+   s_receive_buffer = data_in;
+   s_receive_buffer_full = true;
+ 
++#ifdef CHIMERA_LAG_DETECTION
++  // A pad answered - or a tap did, for one of its pads and not for a memory
++  // card. That is the console asking what is held, and a frame in which it
++  // never asks is a frame the input could not have mattered to.
++  if (ack && (s_active_device == ActiveDevice::Controller ||
++              (s_active_device == ActiveDevice::Multitap && !s_multitaps[s_JOY_CTRL.SLOT].IsReadingMemoryCard())))
++  {
++    chimera_input_was_read();
++  }
++#endif
++
+   // device no longer active?
+   if (!ack)
+   {

@@ -1,0 +1,115 @@
+{
+  "_comment": [
+    "Default bindings for the two ports this package declares. The frontend ships no bindings of its",
+    "own: a package that declares a controller says how it is played by default, and the user's own",
+    "bindings always win.",
+    "",
+    "The face buttons follow the pad's own geometry rather than a keyboard's alphabet: Cross is the",
+    "bottom one and takes the key under the hand, Circle the right, Square the left, Triangle the top.",
+    "Analog is a real button on a DualShock - it switches the pad between digital and analog mode,",
+    "which a game can see - so it is bound rather than assumed.",
+    "",
+    "Player 1 keeps the keyboard as well as the first pad; player 2 gets a pad and no keys."
+  ],
+  "AllTrollers": {
+    "PlayStation Controllers": {
+      "P1 Up": "Up, J1 POV1U, X1 DpadUp",
+      "P1 Down": "Down, J1 POV1D, X1 DpadDown",
+      "P1 Left": "Left, J1 POV1L, X1 DpadLeft",
+      "P1 Right": "Right, J1 POV1R, X1 DpadRight",
+      "P1 Start": "Enter, J1 B10, X1 Start",
+      "P1 Select": "RightShift, J1 B9, X1 Back",
+      "P1 Square": "A, J1 B1, X1 X",
+      "P1 Cross": "Z, J1 B2, X1 A",
+      "P1 Circle": "X, J1 B3, X1 B",
+      "P1 Triangle": "S, J1 B4, X1 Y",
+      "P1 L1": "Q, J1 B5, X1 LeftShoulder",
+      "P1 R1": "W, J1 B6, X1 RightShoulder",
+      "P1 L2": "1, J1 B7, X1 LeftTrigger",
+      "P1 R2": "2, J1 B8, X1 RightTrigger",
+      "P1 L3": "E, J1 B11, X1 LeftStick",
+      "P1 R3": "R, J1 B12, X1 RightStick",
+      "P1 Analog": "Tab, J1 B13",
+      "P2 Up": "J2 POV1U, X2 DpadUp",
+      "P2 Down": "J2 POV1D, X2 DpadDown",
+      "P2 Left": "J2 POV1L, X2 DpadLeft",
+      "P2 Right": "J2 POV1R, X2 DpadRight",
+      "P2 Start": "J2 B10, X2 Start",
+      "P2 Select": "J2 B9, X2 Back",
+      "P2 Square": "J2 B1, X2 X",
+      "P2 Cross": "J2 B2, X2 A",
+      "P2 Circle": "J2 B3, X2 B",
+      "P2 Triangle": "J2 B4, X2 Y",
+      "P2 L1": "J2 B5, X2 LeftShoulder",
+      "P2 R1": "J2 B6, X2 RightShoulder",
+      "P2 L2": "J2 B7, X2 LeftTrigger",
+      "P2 R2": "J2 B8, X2 RightTrigger",
+      "P2 L3": "J2 B11, X2 LeftStick",
+      "P2 R3": "J2 B12, X2 RightStick",
+      "P2 Analog": "J2 B13"
+    }
+  },
+  "AllTrollersAutoFire": {
+    "PlayStation Controllers": {}
+  },
+  "AllTrollersAnalog": {
+    "PlayStation Controllers": {
+      "P1 Left Stick X": {
+        "Value": "X1 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Left Stick Y": {
+        "Value": "X1 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Right Stick X": {
+        "Value": "X1 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P1 Right Stick Y": {
+        "Value": "X1 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Left Stick X": {
+        "Value": "X2 LeftThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Left Stick Y": {
+        "Value": "X2 LeftThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Right Stick X": {
+        "Value": "X2 RightThumbX Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      },
+      "P2 Right Stick Y": {
+        "Value": "X2 RightThumbY Axis",
+        "Mult": 1.0,
+        "Deadzone": 0.1,
+        "ButtonBindPositive": "",
+        "ButtonBindNegative": ""
+      }
+    }
+  }
+}
