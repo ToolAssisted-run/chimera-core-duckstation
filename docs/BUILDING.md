@@ -229,12 +229,13 @@ SKIP is not a pass. What runs depends on what content the machine has:
 | --- | --- | --- |
 | nothing | - | `build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry` |
 | a BIOS | `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS` | `bios:compare`, `bios:rerecord`, `bios:rewind`, `bios:deterministic`, `clock:virtual`, `input:reaches`, `lag:counted`, `console:reset`, `cards:export`, `cards:import`, `cards:refused`, and with a guest Mesa `gl:softpipe`, `gl:machine`, `gl:scale`, `gl:rerecord`, `gl:rewind` |
+| a second BIOS, European | `tests/roms/bios/PSX_4.1(E).bin`, or `CHIMERA_PS1_BIOS_PAL` | `region:rom` |
 | a disc | `tests/roms/NHL Blades of Steel 2000 (USA).cue` and its image, or `CHIMERA_PS1_DISC` | `cue:alone`, `disc:compare`, `disc:rerecord`, `disc:rewind`, `disc:nameless` |
 | Chimera | `$CHIMERA_ROOT` with `build/meson-linux/chimera-run` and the package installed | `engine:project` |
 | a 3D game | `tests/roms/Need for Speed 5 - Porsche Unleashed [U] [SLUS-01104].cue` and its image, or `CHIMERA_PS1_GAME3D` | `play:compare`, `play:rewind`; with both discs, `disc:swap` |
 | a GL context | `build/meson-gl/run-wbx` (`-Dgl_bridge=true`) | `gpu:bridge`, `gpu:machine`, `gpu:picture-after-load`, `gpu:rerecord`, `gpu:play`, `gpu:enhancements` |
 
-All 35 take about eight minutes on a 20-thread desktop. The GPU checks draw
+All 36 take about eight minutes on a 20-thread desktop. The GPU checks draw
 on whatever this machine's EGL hands out and name it; on a machine with no
 card that is llvmpipe, and what they prove is the bridge, not a card.
 `docs/PLAN.md` ("The gate") has what each check compares and how each was

@@ -175,7 +175,7 @@ disc="${CHIMERA_PS1_DISC:-}"
 [ -n "$disc" ] || { [ -f "$root/tests/roms/NHL Blades of Steel 2000 (USA).cue" ] && disc="$root/tests/roms/NHL Blades of Steel 2000 (USA).cue"; }
 
 if [ -z "$bios" ]; then
-	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted \
+	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted region:rom \
 		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind \
 		gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord \
 		console:reset cards:export cards:import cards:refused cue:alone \
@@ -267,6 +267,30 @@ if [ -n "$lag" ] && [ "$lag" -gt 0 ] && [ "$lag" -lt 1300 ]; then
 	report "lag:counted" PASS "$lag of 1300 frames went unpolled: the boot logos do not read the pad, the menu does"
 else
 	report "lag:counted" FAIL "lagFrames=${lag:-missing} of 1300: either every frame polls or none does"
+fi
+
+# ---- an empty tray is the console its ROM was made for ------------------------
+#
+# "auto" reads the region off the disc, and with no disc upstream makes a
+# North American console - which a European ROM then drives in PAL mode off
+# the NTSC crystal. The ROM decides instead: a second BIOS, a European one,
+# must boot a console that keeps the PAL field rate, in both flavors, while
+# the first one's stays what it was.
+bios_pal="${CHIMERA_PS1_BIOS_PAL:-}"
+[ -n "$bios_pal" ] || { [ -f "$root/tests/roms/bios/PSX_4.1(E).bin" ] && bios_pal="$root/tests/roms/bios/PSX_4.1(E).bin"; }
+if [ -z "$bios_pal" ]; then
+	report "region:rom" SKIP "needs a European BIOS as well: tests/roms/bios/PSX_4.1(E).bin, or CHIMERA_PS1_BIOS_PAL=<file>"
+else
+	mkwork "$work/palrom" "$bios_pal" '{"bios":"v4.1-e"}'
+	native "$work/palrom" --frames 600 2>/dev/null | digests > "$work/palrom.n"
+	wbx "$work/palrom" --frames 600 2>/dev/null | digests > "$work/palrom.w"
+	pal_rate="$(sed -n 's/^vsync=//p' "$work/palrom.n")"
+	us_rate="$(sed -n 's/^vsync=//p' "$work/shell.n")"
+	if [ -s "$work/palrom.n" ] && cmp -s "$work/palrom.n" "$work/palrom.w" && [ "$pal_rate" = "53203425/1069484" ] && [ "$us_rate" = "53693175/897619" ]; then
+		report "region:rom" PASS "a European BIOS and an empty tray is a PAL console ($pal_rate, 49.75 fields a second) in both flavors; the American one stays at $us_rate"
+	else
+		report "region:rom" FAIL "European BIOS: field rate [$pal_rate], want 53203425/1069484; American: [$us_rate]; flavors $(cmp -s "$work/palrom.n" "$work/palrom.w" && echo agree || echo DIFFER)"
+	fi
 fi
 
 # ---- the hardware renderer, on the OpenGL inside the sandbox -----------------

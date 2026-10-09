@@ -19,6 +19,7 @@
 #include <waterbox_settings.h>
 #include <waterbox_slots.h>
 
+#include "core/bios.h"
 #include "core/bus.h"
 #include "core/controller.h"
 #include "core/cpu_core.h"
@@ -775,8 +776,8 @@ void ApplySettings(SettingsInterface& si)
   si.SetBoolValue("Logging", "LogToWindow", false);
   si.SetStringValue("Logging", "LogLevel", Settings::GetLogLevelName(verbose ? LOGLEVEL_VERBOSE : LOGLEVEL_ERROR));
 
-  // Which market the console was made for. "auto" is upstream's own: the
-  // disc decides, and an empty tray is a North American console.
+  // Which market the console was made for. "auto" is upstream's own where
+  // there is a disc: the disc decides. With an empty tray the ROM does (Init).
   {
     char region[16] = "auto";
     wbx_setting_str("region", region, sizeof(region));
@@ -988,6 +989,21 @@ ECL_EXPORT int Init(void)
         return 0;
       }
     }
+  }
+
+  // An empty tray gives "auto" nothing to read, and upstream then makes a
+  // North American console of it whatever ROM is inside. Upstream can: it
+  // picks the ROM to suit the region. Here the project picked the ROM, and a
+  // European one puts the video chip in PAL mode on a console clocked for
+  // NTSC - 314 lines off the wrong crystal, a field rate that is neither's,
+  // and a frame rate declared to the frontend that the machine does not keep.
+  // The ROM is the console it was made for, so with no disc the region is
+  // the ROM's.
+  if (g_settings.region == ConsoleRegion::Auto && g_discCount == 0)
+  {
+    const std::optional<BIOS::Image> rom = BIOS::LoadImageFromFile("bios", nullptr);
+    if (rom.has_value() && rom->info && rom->info->region != ConsoleRegion::Auto)
+      g_settings.region = rom->info->region;
   }
 
   params.override_fullscreen = false;

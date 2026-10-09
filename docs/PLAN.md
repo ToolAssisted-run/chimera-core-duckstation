@@ -106,7 +106,8 @@ and declared.
 - **M4 - discs and memory cards.** DONE 2026-10-09: up to eight discs with a
   selector and a lid, memory cards in the machine's memory with import and
   export. Not tried: a game that asks for its second disc, a save a game
-  wrote, a PAL or Japanese console.
+  wrote, a PAL game. A Japanese console with a Japanese game and a European
+  console at its menu have been (see "Other consoles").
 - **M5 - the package and the frontend gate.** DONE 2026-10-09: the four
   declarations, `build-package.sh`, Chimera's contract tests, a project
   through `chimera-run`, and the frontend gate under Mono and, by hand, on
@@ -406,6 +407,37 @@ parsing the day the console's buttons were declared ("unparseable movie entry
 at frame 0"). `tests/make-project.py` now takes the row from the engine: a
 project of no frames is asked to record one.
 
+## Other consoles (2026-10-09)
+
+Everything before this had run on one ROM, the SCPH-7001's (v4.1 A). Two
+more were tried by hand, and the second found a defect.
+
+**A Japanese console with a Japanese game.** BIOS v4.0 J (SCPH-7000) and
+Ganbare Goemon - Ooedo Daikaiten (Japan, SLPM-86774): the disc makes the
+console NTSC-J, the game plays its opening - character cards, then the
+animated titles - and 3000 frames are identical native and sandboxed in
+video, audio, lag, the machine every frame and memory. The same disc on the
+American ROM also boots (upstream warns that the ROM's region is not the
+console's and carries on); that is upstream's behaviour and was left alone.
+
+**A European console at its menu - and the region of an empty tray.** BIOS
+v4.1 E (SCPH-7002) with nothing in the drive booted as a NORTH AMERICAN
+console: "auto" reads the region off the disc, and with no disc upstream
+defaults to NTSC-U. Upstream can afford to, because it then picks a ROM to
+suit; here the project picks the ROM. The European ROM put the video chip in
+PAL mode (a 640x536 picture) on a console clocked for NTSC, and the frame
+rate declared to the frontend was 59.83 while the machine kept neither that
+nor PAL's. Fixed in the adapter: with "auto" and an empty tray the console's
+region is the ROM's (`BIOS::LoadImageFromFile`, the image's own record), so
+that console is PAL at 53203425/1069484, 49.75 fields a second. With a disc
+nothing changed: the disc decides. Gate leg `region:rom` (a second,
+European BIOS; SKIP without one), seen to fail with the rule switched off:
+"European BIOS: field rate [53693175/897619]".
+
+Still not tried: a PAL game (none is on this machine), and what a game that
+changes video standard while running does to a frame rate the frontend read
+once at boot.
+
 ## A game played (2026-10-09)
 
 Need for Speed: Porsche Unleashed (USA), SLUS-01104: one image of a data
@@ -482,7 +514,7 @@ upwards), and nothing at all on Windows.
 
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
 with a Chimera checkout, with a GL context for the bridge, with the 3D game.
-35 legs, eight minutes here, all of them passing on 2026-10-09
+36 legs, eight minutes here, all of them passing on 2026-10-09
 with the SCPH-7001 BIOS, NHL Blades of Steel 2000 (USA) and Need for Speed:
 Porsche Unleashed (USA). Five are the hardware renderer's on softpipe,
 sandbox against itself, and six are the bridge's, drawn by llvmpipe.
@@ -528,6 +560,7 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 | a brought card not read, alone | the card that went in does not come back, and a file that is not a card is no longer refused (by hand, the two legs' own comparisons) |
 | the lid never moving | `disc:swap` ("second disc inserted: 0; swapped and idle are the SAME run") |
 | a binding for a button that is not declared | `keybinds` |
+| an empty tray a North American console whatever the ROM | `region:rom` ("European BIOS: field rate [53693175/897619]") |
 | a source newer than `core.wbx` | `build:fresh` |
 | a project with `fast_boot` against the reference without | the `engine:project` comparison, by hand; in the gate that leg was seen red through its stale-package arm |
 
@@ -640,7 +673,7 @@ then Chimera's reusable publish workflow.
 
 **What it proves is the first tier and no more.** With no BIOS the core gate
 runs `build:fresh`, `keybinds`, `nobios:refuses` and `gamedb:entry` and says
-SKIP 31 times; the frontend gate says SKIP five times and is run all the
+SKIP 32 times; the frontend gate says SKIP five times and is run all the
 same, so that the script is known to find the frontend, the package and the
 reference. The contract tests need no content. The workflow's header says
 this, and so does every skipped line.
@@ -660,7 +693,8 @@ the publish job.
 **The compiler is part of the package, so the GCC 13 build was gated with
 content too**: in that same fresh clone, with `build/meson-gl` added and the
 BIOS and both games named by their environment variables, the core gate
-said 35 ok, 0 failed, 0 skipped - the count the GCC 14 build has. (Its
+said 35 ok, 0 failed, 0 skipped - every leg there was that day, and the
+count the GCC 14 build had. (Its
 `engine:project` check ran the GCC 13 package through the engine built in
 the other checkout; its GPU checks drew on llvmpipe.)
 
@@ -694,9 +728,29 @@ So the arcade boards cannot be had by pinning ArcadeDuck instead. They go in
 the way the PlayStation 2 core carries NAMCO's boards: ArcadeDuck's arcade
 sources beside upstream, and the changes it made to the machine's files
 re-expressed as one patch of hook sites behind a define, with the console
-untouched when the define is off. Not started; the licences of the chip
-emulations it bundles (several come from MAME, whose files are licensed one
-by one) have to be read first.
+untouched when the define is off. Not started.
+
+**The licences were read (2026-10-09), and nothing in the arcade sources
+stands in the way.** ArcadeDuck's own files are GPL-3.0-only (68 of them
+under `src/core/arcade`). What it bundles there: QSound HLE (ValleyBell,
+BSD-3-Clause), ymfm (Aaron Giles, BSD-3-Clause), a Z80 (superzazu, MIT), an
+ADSP-2181 (from modem-dsp-emu, BSD-3-Clause), and devices adapted from MAME -
+the MN10200, ZSG-2 and TMS57002 - each marked BSD-3-Clause, the licence
+those MAME files carry; Musashi's 68000 is MIT. All of it may be distributed
+with a GPL-3.0 package. `package-licenses.json` will have to name each.
+
+**The size.** 57,000 lines under `src/core/arcade` (Sony ZN alone is 6,100,
+Konami 3,300, Namco System 11 2,900) and about 4,000 changed lines in the
+machine's own files to turn into hook sites. Its database (`arcadedb.yaml`)
+lists sixteen systems; the ones with a machine behind them are Sony ZN-1 and
+ZN-2 (Capcom, Taito FX-1, Tecmo TPS, Raizing, Acclaim, Video System, Atlus,
+Time Warner), Namco System 11, Konami GV and Konami GQ. It expects MAME
+non-merged sets and MAME's BIOS archives.
+
+**No set to try it on.** The arcade folder on this machine holds nothing
+for a PlayStation-derived board, so not one of these machines could be
+booted here. A board that has never run a game is not offered; the work
+waits for at least one set per board family, with its BIOS archive.
 
 ## Sharp edges
 
