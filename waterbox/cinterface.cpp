@@ -273,6 +273,34 @@ void ComposeFrame()
   GPU::ChimeraDisplay d;
   g_gpu->ChimeraGetDisplay(&d);
 
+#ifdef CHIMERA_ARCADE
+  // A cabinet's monitor did not show every line its board draws, and
+  // ArcadeDuck records, per game, how many it hid at the top and the bottom
+  // (Tekken: eleven and one). It takes them off the picture on its way to a
+  // window and stretches what is left; a core hands rows over, so the rows are
+  // left out and the raster is that much shorter - the frontend gives it its
+  // 4:3 shape either way. Only under "overscan", as there: "none" is the whole
+  // raster, for somebody who wants to see what the monitor hid.
+  if (System::IsArcadeVideoTiming() && g_settings.display_crop_mode == DisplayCropMode::Overscan && d.texture &&
+      d.vram_height > 0 && d.view_height > 0)
+  {
+    const u32 lines = d.vram_height;
+    const u32 crop_top = std::min<u32>(g_settings.display_arcade_monitor_crop_top, lines - 1);
+    const u32 crop_bottom = std::min<u32>(g_settings.display_arcade_monitor_crop_bottom, lines - crop_top - 1);
+    // the view is those lines at the renderer's scale (half of them a field,
+    // in an interlaced mode): the same share of its rows goes
+    const s32 top_rows = static_cast<s32>((static_cast<u64>(crop_top) * static_cast<u32>(d.view_height)) / lines);
+    const s32 bottom_rows = static_cast<s32>((static_cast<u64>(crop_bottom) * static_cast<u32>(d.view_height)) / lines);
+    if ((crop_top + crop_bottom) > 0 && (top_rows + bottom_rows) < d.view_height &&
+        (crop_top + crop_bottom) < d.display_height)
+    {
+      d.view_y += top_rows;
+      d.view_height -= top_rows + bottom_rows;
+      d.display_height -= crop_top + crop_bottom;
+    }
+  }
+#endif
+
   // How many texture pixels there are to one of the console's. The renderer
   // says nothing about it directly; the texture's view of the visible VRAM
   // rectangle does. 24-bit pictures (video) are never scaled.

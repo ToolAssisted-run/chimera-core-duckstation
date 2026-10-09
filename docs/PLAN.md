@@ -520,11 +520,11 @@ upwards), and nothing at all on Windows.
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
 with a Chimera checkout, with a GL context for the bridge, with the 3D game -
 and then the arcade boards, which need no PlayStation BIOS and are run
-whether or not there is one (`-a` runs them alone). 48 legs, eleven minutes
+whether or not there is one (`-a` runs them alone). 49 legs, eleven minutes
 here, all of them passing on 2026-10-09: 36 are the console's, with the
 SCPH-7001 BIOS, NHL Blades of Steel 2000 (USA) and Need for Speed: Porsche
 Unleashed (USA) - five of them the hardware renderer's on softpipe, sandbox
-against itself, and six the bridge's, drawn by llvmpipe - and 12 are the
+against itself, and six the bridge's, drawn by llvmpipe - and 13 are the
 arcade boards', with Tekken (`tekkenac`) and Crypt Killer (`cryptklr`).
 
 The arcade legs passed the first time they were run, all of them, which is
@@ -542,6 +542,7 @@ the best reason there is to break each one. Four builds did it:
 | the card's VRAM not fetched before a state | `ns11:gpu` ("told and straight DIFFER") |
 | a load that adds one to a byte of RAM | `ns11:rerecord`, with every rewind leg |
 | the record of the boards left out of the core | `arcadedb:entry`, `arcade:noset`, and everything after them |
+| the monitor's hidden lines handed over all the same | `ns11:crop` ("default [512x240], want 512x228") |
 
 The ninth row was first tried as a load that FLIPS a bit, and
 `ns11:rerecord` stayed green: five hundred loads are five hundred flips, and
@@ -713,7 +714,7 @@ then Chimera's reusable publish workflow.
 
 **What it proves is the first tier and no more.** With no BIOS the core gate
 runs `build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry`,
-`arcadedb:entry` and `arcade:noset` and says SKIP 42 times; the frontend
+`arcadedb:entry` and `arcade:noset` and says SKIP 43 times; the frontend
 gate says SKIP six times and is run all the
 same, so that the script is known to find the frontend, the package and the
 reference. The contract tests need no content. The workflow's header says
@@ -884,6 +885,20 @@ save data, under the board's own name for it with `.nv` on the end:
 A bump of ArcadeDuck's pin has to re-read those call sites: one that passed
 a temporary buffer would leave a dangling pointer behind it.
 
+### The picture's edge
+
+A cabinet's monitor did not show every line its board draws, and ArcadeDuck
+records per game how many it hid at the top and the bottom - Tekken: eleven
+and one. It takes them off the picture on its way to a window and stretches
+what is left. A core hands rows over, so the adapter leaves those rows out
+and the raster is that much shorter (Tekken is 512x228), under the default
+crop only; `crop: none` is the whole raster, 512x240, for somebody who wants
+to see what the monitor hid. The first published build did not do this and
+had eleven black lines above Tekken's picture. A gun's aim is still a
+fraction of the whole picture ArcadeDuck's input code knows, not of the
+cropped one; for a game whose crop is a line or two that is under a line of
+error, and no game with a larger one has been aimed at.
+
 ### Sound level
 
 ArcadeDuck raises what a board's sound chip mixed by 12 dB on its way to a
@@ -942,10 +957,6 @@ Not tried, and not to be said to work:
 - **Above 4x on a System 11 board.** Its VRAM is 1024 lines, twice the
   console's, and at 8x the buffer the card writes into is 256 MB where the
   memory layout has 192 MB of room for it. Not measured.
-- **ArcadeDuck's monitor crop.** It hides, per game, the lines a cabinet's
-  monitor never showed (Tekken: eleven at the top, one at the bottom) and
-  stretches the rest. The core hands over the whole raster, so Tekken has
-  eleven black lines above its picture.
 - **Cabinets with a wheel, a trackball or sensors**, and more than two
   players.
 

@@ -11,10 +11,19 @@
 // What upstream's build stamps from git. A core's version is the package's
 // (build-package.sh), and a string that changed with every build would make
 // two builds of one commit differ.
+//
+// This file is compiled once for each emulator, and each says its own pin.
+#ifdef CHIMERA_ARCADE
+const char* g_scm_hash_str = "1e3f7ad3a3f6a96697274da9a46f68c8ac558070";
+const char* g_scm_branch_str = "chimera";
+const char* g_scm_tag_str = "arcadeduck-1e3f7ad";
+const char* g_scm_date_str = "2026-09-27T09:18:12-0400";
+#else
 const char* g_scm_hash_str = "14ab642ff3d5d489d388c8062530aa2f7c9a1372";
 const char* g_scm_branch_str = "chimera";
 const char* g_scm_tag_str = "0.1-7463-g14ab642ff";
 const char* g_scm_date_str = "2024-09-01T13:02:58+1000";
+#endif
 
 BEGIN_HOTKEY_LIST(g_common_hotkeys)
 END_HOTKEY_LIST()

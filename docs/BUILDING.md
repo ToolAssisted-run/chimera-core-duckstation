@@ -262,7 +262,7 @@ there is one (`./waterbox/run-gate.sh -a` runs them alone):
 | With | Named by | Checks |
 | --- | --- | --- |
 | nothing | - | `arcadedb:entry`, `arcade:noset` |
-| a Namco System 11 set | `tests/roms/arcade/sets/tekkenac.zip` (Tekken, Asia, TE4/VER.C) or `CHIMERA_ARCADE_NS11_SET`, and `tests/roms/arcade/namcoc76.zip` or `CHIMERA_ARCADE_NS11_BIOS` | `ns11:compare`, `ns11:rerecord`, `ns11:rewind`, `ns11:memory`, `ns11:refused`; with Chimera `ns11:engine`; with a guest Mesa `ns11:gl`; with a GL context `ns11:gpu` |
+| a Namco System 11 set | `tests/roms/arcade/sets/tekkenac.zip` (Tekken, Asia, TE4/VER.C) or `CHIMERA_ARCADE_NS11_SET`, and `tests/roms/arcade/namcoc76.zip` or `CHIMERA_ARCADE_NS11_BIOS` | `ns11:compare`, `ns11:rerecord`, `ns11:rewind`, `ns11:memory`, `ns11:refused`, `ns11:crop`; with Chimera `ns11:engine`; with a guest Mesa `ns11:gl`; with a GL context `ns11:gpu` |
 | a Konami GQ set | `tests/roms/arcade/sets/cryptklr.zip` (Crypt Killer) or `CHIMERA_ARCADE_GQ_SET`, and its hard disk `tests/roms/arcade/420uaa04.chd` or `CHIMERA_ARCADE_GQ_DISK` | `gq:compare`, `gq:rewind` |
 
 The press scripts are written for those two sets. A set must be complete
@@ -271,7 +271,7 @@ MAME release's; `waterbox/tests/make-arcade-set.py` rebuilds one from
 archives that hold the same roms under older names, by CRC, and invents
 nothing.
 
-All 48 take about eleven minutes on a 20-thread desktop. The GPU checks draw
+All 49 take about eleven minutes on a 20-thread desktop. The GPU checks draw
 on whatever this machine's EGL hands out and name it; on a machine with no
 card that is llvmpipe, and what they prove is the bridge, not a card.
 `docs/PLAN.md` ("The gate") has what each check compares and how each was

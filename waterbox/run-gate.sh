@@ -225,7 +225,7 @@ arcade_tier() {
 	[ -n "$ns11" ] || { [ -f "$adir/sets/tekkenac.zip" ] && ns11="$adir/sets/tekkenac.zip"; }
 	[ -n "$ns11bios" ] || { [ -f "$adir/namcoc76.zip" ] && ns11bios="$adir/namcoc76.zip"; }
 	if [ -z "$ns11" ] || [ -z "$ns11bios" ]; then
-		for leg in ns11:compare ns11:rerecord ns11:rewind ns11:memory ns11:refused ns11:engine ns11:gl ns11:gpu; do
+		for leg in ns11:compare ns11:rerecord ns11:rewind ns11:memory ns11:refused ns11:crop ns11:engine ns11:gl ns11:gpu; do
 			report "$leg" SKIP "needs tests/roms/arcade/sets/tekkenac.zip (CHIMERA_ARCADE_NS11_SET) and tests/roms/arcade/namcoc76.zip (CHIMERA_ARCADE_NS11_BIOS)"
 		done
 	else
@@ -310,6 +310,21 @@ arcade_tier() {
 			report "ns11:refused" PASS "a System 11 set in a project made for another board is refused, and the refusal names both"
 		else
 			report "ns11:refused" FAIL "a Konami GQ project took a System 11 set"
+		fi
+
+		# The lines a cabinet's monitor never showed. ArcadeDuck's record says
+		# Tekken's hid eleven at the top and one at the bottom; under the
+		# default crop they are not handed over, under "none" they are, and
+		# either way it is the picture's edge and nothing the board can see.
+		mkns11 "$work/tkfull" '{"machine":"namco_system11","crop":"none"}'
+		wbx "$work/tk" --frames 600 2>/dev/null > "$work/tk.crop"
+		wbx "$work/tkfull" --frames 600 2>/dev/null > "$work/tk.full"
+		local size_crop size_full
+		size_crop="$(sed -n 's/^videoSize=//p' "$work/tk.crop")"; size_full="$(sed -n 's/^videoSize=//p' "$work/tk.full")"
+		if [ "$size_crop" = "512x228" ] && [ "$size_full" = "512x240" ] && cmp -s <(machine_only < "$work/tk.crop") <(machine_only < "$work/tk.full"); then
+			report "ns11:crop" PASS "the picture is $size_crop without the twelve lines the cabinet's monitor hid and $size_full with them (crop: none), and the board is the same board"
+		else
+			report "ns11:crop" FAIL "default [$size_crop], want 512x228; crop none [$size_full], want 512x240; machine $(cmp -s <(machine_only < "$work/tk.crop") <(machine_only < "$work/tk.full") && echo same || echo DIFFERS)"
 		fi
 
 		# the package, through Chimera's engine, from a project with the presses in it

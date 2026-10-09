@@ -111,7 +111,7 @@ and, in the Chimera checkout, the contract tests (`docs/BUILDING.md`).
 - **Know what ran.** Both gates must end with `0 failed`. Neither machine
   runs anything without content, so with none the core gate runs six checks
   (`build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry`,
-  `arcadedb:entry`, `arcade:noset`), skips 42, and the frontend gate skips
+  `arcadedb:entry`, `arcade:noset`), skips 43, and the frontend gate skips
   all six of its own. That is all CI proves.
 - To gate the machine, provide the BIOS the gate names:
   `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS=<file>`. The disc

@@ -17,7 +17,7 @@ name: chimera waterbox core
 # GPU bridge, memory cards, discs, a game played into a race, the package
 # through the frontend - needs a BIOS or a game, reports SKIP here, and is
 # run by hand against the developer's own content. waterbox/run-gate.sh says
-# so on every line: 6 checks run here, 42 skip, and the frontend gate skips
+# so on every line: 6 checks run here, 43 skip, and the frontend gate skips
 # all 6 of its own.
 
 on:
