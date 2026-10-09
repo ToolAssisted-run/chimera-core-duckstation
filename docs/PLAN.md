@@ -331,9 +331,28 @@ the game leaves in VRAM and does not redraw, which is the hardest case for a
 renderer that lost its VRAM and the reason the untold control is wrong for as
 long as it was watched.
 
-What that does NOT show: a 3D scene, PGXP, a game that reads its picture
-back, a state made in one process and loaded in another on the card, or any
-other card.
+The same card, later the same day, on the race (core 254e418; Need for
+Speed: Porsche Unleashed from a project whose movie carries the presses,
+6500 frames, the last 1800 of them driving):
+
+| run | result |
+|---|---|
+| software | 11 s |
+| opengl-hw 4x, nothing turned on | 70 s with the project's states, 54 s with none taken; Main RAM is the software run's; 1280x896 |
+| 4x with true colour, bilinear filtering and PGXP | 62 s; RAM differs from software's, as PGXP was measured to make it |
+| 8x with true colour, JINC2, PGXP and its depth buffer | 209 s, 31 frames a second; 2560x1792 |
+| `--settle-probe 6400,12`, 4x with true colour, bilinear and PGXP, a state every 100 frames, the scene moving | all 12 frames drawn after the load: 0.00% of pixels differ |
+| the same with `CHIMERA_NO_STATE_SAVING=1` | 97.60% of pixels wrong in the first frame, 87.77% in the fourth, wrong in all 12 |
+| the same probe with the PGXP depth buffer on | exact |
+
+So the carried VRAM is what makes a 3D scene's picture after a load as well,
+enhancements on. Speed: at 4x the race runs at twice real time on this card
+and at 8x at half of it; the frame is read back and handed over every frame,
+and at 8x that is 18 MB a frame. The software renderer is five times faster
+than the hardware one at 4x here, because the processor is the cheap part.
+
+What that does NOT show: a game that reads its picture back, a state made in
+one process and loaded in another on the card, or any other card.
 
 ## A game played (2026-10-09)
 
