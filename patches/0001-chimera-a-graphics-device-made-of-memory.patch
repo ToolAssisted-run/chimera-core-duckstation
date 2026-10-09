@@ -1,0 +1,91 @@
+diff --git a/src/core/gpu.h b/src/core/gpu.h
+index 76cb876..bc4b6d7 100644
+--- a/src/core/gpu.h
++++ b/src/core/gpu.h
+@@ -176,6 +176,38 @@ public:
+   float ComputeVerticalFrequency() const;
+   float ComputeDisplayAspectRatio() const;
+ 
++#ifdef CHIMERA_WATERBOX
++  // The frame as the console put it out, for a frontend that reads it rather
++  // than presenting it: the display texture and the part of it in view, and
++  // where that rectangle sits in the raster the video mode describes.
++  struct ChimeraDisplay
++  {
++    GPUTexture* texture;
++    s32 view_x, view_y, view_width, view_height;
++    u32 display_width, display_height;
++    u32 origin_left, origin_top;
++    u32 vram_width, vram_height;
++    u32 field;
++    bool interlaced;
++  };
++  void ChimeraGetDisplay(ChimeraDisplay* out) const
++  {
++    out->texture = m_display_texture;
++    out->view_x = m_display_texture_view_x;
++    out->view_y = m_display_texture_view_y;
++    out->view_width = m_display_texture_view_width;
++    out->view_height = m_display_texture_view_height;
++    out->display_width = m_crtc_state.display_width;
++    out->display_height = m_crtc_state.display_height;
++    out->origin_left = m_crtc_state.display_origin_left;
++    out->origin_top = m_crtc_state.display_origin_top;
++    out->vram_width = m_crtc_state.display_vram_width;
++    out->vram_height = m_crtc_state.display_vram_height;
++    out->field = GetInterlacedDisplayField();
++    out->interlaced = IsInterlacedDisplayEnabled();
++  }
++#endif
++
+   static std::unique_ptr<GPU> CreateHardwareRenderer();
+   static std::unique_ptr<GPU> CreateSoftwareRenderer();
+ 
+diff --git a/src/core/settings.cpp b/src/core/settings.cpp
+index db23ed8..9518b92 100644
+--- a/src/core/settings.cpp
++++ b/src/core/settings.cpp
+@@ -1135,7 +1135,14 @@ RenderAPI Settings::GetRenderAPIForRenderer(GPURenderer renderer)
+     case GPURenderer::HardwareOpenGL:
+       return RenderAPI::OpenGL;
+ #endif
++#ifdef CHIMERA_WATERBOX
++    // The software renderer needs a device only to hold the picture it has
++    // already drawn, and in a sandbox that device is memory.
+     case GPURenderer::Software:
++      return RenderAPI::None;
++#else
++    case GPURenderer::Software:
++#endif
+     case GPURenderer::Automatic:
+     default:
+       return GPUDevice::GetPreferredAPI();
+diff --git a/src/util/gpu_device.cpp b/src/util/gpu_device.cpp
+index 3ab0120..8a81b9a 100644
+--- a/src/util/gpu_device.cpp
++++ b/src/util/gpu_device.cpp
+@@ -1201,6 +1201,10 @@ void GPUDevice::ResetStatistics()
+   s_stats = {};
+ }
+ 
++#ifdef CHIMERA_WATERBOX
++std::unique_ptr<GPUDevice> ChimeraCreateMemoryDevice();
++#endif
++
+ std::unique_ptr<GPUDevice> GPUDevice::CreateDeviceForAPI(RenderAPI api)
+ {
+   switch (api)
+@@ -1229,6 +1233,13 @@ std::unique_ptr<GPUDevice> GPUDevice::CreateDeviceForAPI(RenderAPI api)
+       return WrapNewMetalDevice();
+ #endif
+ 
++#ifdef CHIMERA_WATERBOX
++    // No API at all: the software renderer's picture, kept as bytes
++    // (chimera-core-duckstation, waterbox/memory-device.cpp).
++    case RenderAPI::None:
++      return ChimeraCreateMemoryDevice();
++#endif
++
+     default:
+       return {};
+   }

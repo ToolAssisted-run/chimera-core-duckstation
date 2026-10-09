@@ -1,0 +1,51 @@
+diff --git a/dep/imgui/include/imconfig.h b/dep/imgui/include/imconfig.h
+index 424f61f..14249d2 100644
+--- a/dep/imgui/include/imconfig.h
++++ b/dep/imgui/include/imconfig.h
+@@ -81,13 +81,17 @@
+ //---- Use FreeType to build and rasterize the font atlas (instead of stb_truetype which is embedded by default in Dear ImGui)
+ // Requires FreeType headers to be available in the include path. Requires program to be compiled with 'misc/freetype/imgui_freetype.cpp' (in this repository) + the FreeType library (not provided).
+ // On Windows you may use vcpkg with 'vcpkg install freetype --triplet=x64-windows' + 'vcpkg integrate install'.
++#ifndef CHIMERA_WATERBOX
+ #define IMGUI_ENABLE_FREETYPE
++#endif
+ 
+ //---- Use FreeType+lunasvg library to render OpenType SVG fonts (SVGinOT)
+ // Requires lunasvg headers to be available in the include path + program to be linked with the lunasvg library (not provided).
+ // Only works in combination with IMGUI_ENABLE_FREETYPE.
+ // (implementation is based on Freetype's rsvg-port.c which is licensed under CeCILL-C Free Software License Agreement)
++#ifndef CHIMERA_WATERBOX
+ #define IMGUI_ENABLE_FREETYPE_LUNASVG
++#endif
+ 
+ //---- Use stb_truetype to build and rasterize the font atlas (default)
+ // The only purpose of this define is if you want force compilation of the stb_truetype backend ALONG with the FreeType backend.
+diff --git a/src/core/system.cpp b/src/core/system.cpp
+index 5252108..2ae121d 100644
+--- a/src/core/system.cpp
++++ b/src/core/system.cpp
+@@ -90,10 +90,13 @@ Log_SetChannel(System);
+ #endif
+ 
+ #ifndef __ANDROID__
++#ifndef CHIMERA_WATERBOX
++// a sandbox has no sockets, and nobody to be present to
+ #define ENABLE_DISCORD_PRESENCE 1
+ #define ENABLE_PINE_SERVER 1
+ #define ENABLE_GDB_SERVER 1
+ #define ENABLE_SOCKET_MULTIPLEXER 1
++#endif
+ #include "gdb_server.h"
+ #include "pine_server.h"
+ #endif
+@@ -5683,8 +5686,10 @@ bool System::PresentDisplay(bool skip_present, bool explicit_present)
+   }
+   else
+   {
++#ifndef CHIMERA_WATERBOX
+     // Still need to kick ImGui or it gets cranky.
+     ImGui::Render();
++#endif
+   }
+ 
+   ImGuiManager::NewFrame();

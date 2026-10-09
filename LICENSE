@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2026 Sergio Martin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Note: this licence covers the integration this repository adds: the waterbox/
+driver, scripts and shims, except where a file says otherwise. Two files say
+otherwise because they are made from DuckStation's own source and stay under
+its terms (GPL-3.0): waterbox/host.cpp, which began as upstream's
+src/duckstation-regtest/regtest_host.cpp, and waterbox/audio-stream.cpp, which
+implements the class upstream's src/util/audio_stream.h declares. The patches/
+directory modifies DuckStation and is offered under DuckStation's terms as
+well.
+
+Upstream is DuckStation at commit 14ab642ff3d5d489d388c8062530aa2f7c9a1372
+(2024-09-01), the last commit of stenzek/duckstation whose every source file
+is offered under the GPL-3.0: the commits after it relicensed the project
+under CC BY-NC-ND 4.0, which does not allow a modified version to be
+distributed, and nothing from them is here. docs/PLAN.md, "The pin", has the
+evidence. The built core contains that DuckStation and the libraries it
+bundles, and the package as a whole is therefore distributed under the
+GPL-3.0; see waterbox/package-licenses.json.

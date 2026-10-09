@@ -1,0 +1,7 @@
+option('minibox_dir', type: 'string', value: '', description: 'miniBox checkout (guest kit + host)')
+
+option('recompiler', type: 'boolean', value: false,
+  description: 'Build DuckStation\'s two x86-64 code generators beside its interpreters. They run without page faults (fastmem by lookup table, never by mmap); which executor a project uses is a setting.')
+
+option('host_clock', type: 'boolean', value: false,
+  description: 'DIAGNOSTIC, native builds only: leave DuckStation\'s timers on the host\'s clock, as upstream has them. The shipped core never does - its clock is the console\'s own, bought with executed instructions - and a reference built this way is how the gate\'s clock leg is seen to fail.')

@@ -1,0 +1,9 @@
+[submodule "extern/duckstation"]
+	path = extern/duckstation
+	url = https://github.com/stenzek/duckstation.git
+[submodule "extern/zlib"]
+	path = extern/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "extern/zstd"]
+	path = extern/zstd
+	url = https://github.com/facebook/zstd.git

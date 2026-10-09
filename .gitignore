@@ -1,0 +1,19 @@
+# Meson build trees: the guest cross file and both build dirs are machine-local
+build/
+
+# CONTENT NEVER ENTERS THIS REPOSITORY.
+#
+# A PlayStation needs its ROM, and every disc image that exists is somebody's.
+# Everything under tests/roms is ignored WHOLESALE rather than by pattern: a
+# rule that lists what may not be committed is a rule that eventually misses
+# one. What this repository may ship (a program it builds itself, a test suite
+# under a free licence) goes in tests/own/ instead, which is tracked.
+tests/roms/
+tests/roms-local/
+tests/firmware-local/
+
+# the sandbox writes this when a guest faults
+minibox-diag.log
+
+# the frontend gate's scratch: configs, logs, RAM dumps and screenshots
+waterbox/tests/work/
