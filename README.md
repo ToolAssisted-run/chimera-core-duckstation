@@ -43,13 +43,14 @@ The two print the same digests of video, audio and memory, or something is
 wrong. The BIOS and the games are yours to provide; none is in this
 repository.
 
-## The gate and the package
+## The gates and the package
 
 ```sh
-./waterbox/run-gate.sh                               # native against sandbox, leg by leg
-./waterbox/build-package.sh -r <chimera checkout>    # -> build/Cores/duckstation.chimeraCore
+./waterbox/run-gate.sh                                        # native against sandbox, leg by leg
+./waterbox/build-package.sh -r <chimera checkout>             # -> build/Cores/duckstation.chimeraCore
+./waterbox/tests/run-frontend.sh --chimera-root <chimera>     # the package inside the frontend
 ```
 
-The gate needs a BIOS at `tests/roms/bios/PSX_4.1(A).bin` (or
-`CHIMERA_PS1_BIOS`) for anything past its first four checks, and a disc
-(`CHIMERA_PS1_DISC`) for the rest. What is missing is reported SKIP.
+The gates need a BIOS at `tests/roms/bios/PSX_4.1(A).bin` (or
+`CHIMERA_PS1_BIOS`) for anything past the first four checks, and the two
+games `docs/PLAN.md` names for the rest. What is missing is reported SKIP.

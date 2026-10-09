@@ -10,9 +10,20 @@ the bare-image path never exercises.
 With no slot argument the console has an empty tray, and boots to its own
 menu.
 
-usage: make-project.py <package> <out.chimeraProject> <frames> [--set=<setting>=<value> ...] [<slot=file> ...]
+usage: make-project.py <package> <out.chimeraProject> <frames> [--set=<setting>=<value> ...]
+                       [--idle-row=<row>] [<slot=file> ...]
 
 A file a cue sheet names goes in as support=<file>.
+
+A movie's row has a column for every control the MACHINE has, which is not
+every control the package declares: a port with nothing in it has none, a
+digital pad has no sticks, and the disc selector exists only when there is
+more than one disc. Only the core knows, so the row is not guessed here:
+this script restates the core's rule (which wires are live for these settings
+and files) and makes both the LogKey and the rows from it. --idle-row is a row
+the engine itself recorded for the same settings and files (chimera-run
+--project <a project of 0 frames> --frames 1 --record <file>); given one, the
+script stops if the row it worked out is not that row.
 """
 import hashlib
 import json
@@ -37,32 +48,13 @@ def main():
     buttons = inputs["buttons"]
     axes = inputs.get("axes", [])
 
-    # the log mnemonic (see chimera-core-ares's make-project.py): grouped by
-    # player, axes first as five-wide values with a comma, one char per button
-    def player_of(name):
-        if len(name) > 2 and name[0] in "Pp" and name[1].isdigit():
-            return int(name[1])
-        return 0
-
-    groups = max([player_of(a["name"]) for a in axes] + [player_of(b) for b in buttons] + [0]) + 1
-    row, key = "", ""
-    for g in range(groups):
-        row += "|"
-        key += "#"
-        for a in axes:
-            if player_of(a["name"]) == g:
-                row += "%5d," % a.get("neutral", 0)
-                key += a["name"] + "|"
-        for b in buttons:
-            if player_of(b) == g:
-                row += "."
-                key += b + "|"
-    row += "|"
-    log = "[Input]\nLogKey:" + key + "\n" + "\n".join([row] * frames) + "\n[/Input]\n"
-
     files = []
     chosen = {}
+    idle_row = None
     for arg in sys.argv[4:]:
+        if arg.startswith("--idle-row="):
+            idle_row = arg[len("--idle-row="):]
+            continue
         if arg.startswith("--set="):
             name, value = arg[len("--set="):].split("=", 1)
             chosen[name] = value
@@ -75,7 +67,64 @@ def main():
     for name, value in chosen.items():
         if name not in settings:
             sys.exit("make-project.py: the package declares no setting named " + name)
+        # a setting keeps the type its declaration gives it
+        if isinstance(settings[name], bool):
+            value = value in ("true", "True", "1")
         settings[name] = value
+
+    # Which of the declared controls THIS machine has. The frontend reads a
+    # movie's rows by its LogKey, and the engine writes a row with a column
+    # for every control the core says is live (IsButtonActive, IsAxisActive)
+    # and no other - so key and row are both made from the same list, and the
+    # list is the core's rule (waterbox/cinterface.cpp), restated: Reset
+    # always, the lid with a disc, the selector with several; nothing for an
+    # empty port, no sticks or stick buttons for a digital pad.
+    discs = sum(1 for f in files if f["slot"] == "disc")
+
+    def player_of(name):
+        if len(name) > 2 and name[0] in "Pp" and name[1].isdigit():
+            return int(name[1])
+        return 0
+
+    def live(name):
+        port = player_of(name)
+        if port == 0:
+            if name == "Reset":
+                return True
+            if name == "Disc Swap":
+                return discs > 0
+            return discs > 1
+        kind = settings.get("port%d" % port, "none")
+        if kind == "none":
+            return False
+        if kind == "digital":
+            return "Stick" not in name and name.split(" ", 1)[1] not in ("L3", "R3", "Analog")
+        return True
+
+    groups = max([player_of(a["name"]) for a in axes] + [player_of(b) for b in buttons] + [0]) + 1
+    row, key = "", ""
+    for g in range(groups):
+        cells, names = "", ""
+        for a in axes:
+            if player_of(a["name"]) == g and live(a["name"]):
+                cells += "%5d," % a.get("neutral", 0)
+                names += a["name"] + "|"
+        for b in buttons:
+            if player_of(b) == g and live(b):
+                cells += "."
+                names += b + "|"
+        if g > 0 and not names:
+            continue  # a port with nothing in it has no group
+        row += "|" + cells
+        key += "#" + names
+    row += "|"
+    # The engine's own word for the row, when the caller has it (a project of
+    # no frames asked to record one): it must be the row worked out above, or
+    # the rule restated here has drifted from the core's - upstream's game
+    # database can swap a DualShock for a digital pad, for one.
+    if idle_row is not None and idle_row != row:
+        sys.exit("make-project.py: the engine records %r for an idle frame and this script worked out %r" % (idle_row, row))
+    log = "[Input]\nLogKey:" + key + "\n" + "\n".join([row] * frames) + ("\n" if frames else "") + "[/Input]\n"
 
     # the firmware this machine needs, pinned as the wizard would pin it: every
     # declaration whose condition the settings meet (the ROMs themselves come

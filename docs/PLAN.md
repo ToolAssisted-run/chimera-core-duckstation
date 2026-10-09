@@ -98,16 +98,18 @@ and declared.
 - **M2 - the guest build.** DONE 2026-10-09: `core.wbx` links, passes
   `check-wbx.sh`, and agrees with the native reference.
 - **M3 - input, lag, savestates as gate legs.** DONE 2026-10-09 for two
-  ports of digital pad or DualShock. The other controllers upstream has
-  (mouse, GunCon, NeGcon, Justifier, analog joystick) and the multitap are
-  not wired.
-- **M4 - discs and memory cards.** PARTLY: one disc, by name from a project
-  or nameless when opened directly. Not yet: several discs and the swap,
-  memory cards through the save-data channel (a card is in port 1 but lives
-  and dies with the session), a PAL or Japanese game.
-- **M5 - the package.** DONE 2026-10-09 for what exists: the four
-  declarations, `build-package.sh`, Chimera's contract tests, and a project
-  through `chimera-run`. The frontend gate under Mono is not written.
+  ports of digital pad or DualShock, and the console's Reset button. The
+  other controllers upstream has (mouse, GunCon, NeGcon, Justifier, analog
+  joystick) and the multitap are not wired.
+- **M4 - discs and memory cards.** DONE 2026-10-09: up to eight discs with a
+  selector and a lid, memory cards in the machine's memory with import and
+  export. Not tried: a game that asks for its second disc, a save a game
+  wrote, a PAL or Japanese console.
+- **M5 - the package and the frontend gate.** DONE 2026-10-09: the four
+  declarations, `build-package.sh`, Chimera's contract tests, a project
+  through `chimera-run`, and the frontend gate under Mono. Not done: the
+  same scenario on Windows through the frontend itself (only `chimera-run.exe`
+  has run there).
 - **M6 - the hardware renderer.** DONE 2026-10-09 but for widescreen: it
   runs inside the sandbox on Mesa softpipe and, through the GPU bridge, on a
   real card (a GTX 1060), at 1x to 8x, with states, rewind and an exact
@@ -264,11 +266,13 @@ too and pass.
 - **`glGetString` had one buffer.** miniBox's generated wrapper copied every
   answer into the same static buffer; upstream asks for vendor, renderer and
   version, reads all three afterwards and picks driver workarounds from them,
-  so the first bridged run logged all three as "4.50". `gl-bridged.cpp` keeps
-  a copy per name. Reported to the main session, which found the same in
-  Dolphin and Flycast and fixed the generator (miniBox bd8daaf); the copy here
-  is then redundant and harmless, and stays until this core is built against
-  that miniBox.
+  so the first bridged run logged all three as "4.50". Reported to the main
+  session, which found the same in Dolphin and Flycast and fixed the
+  generator (miniBox bd8daaf: a place per name). This core carried a copy per
+  name of its own for a day; it was dropped once the core was built against
+  that miniBox, so a build against an older one would log three identical
+  strings again - `gpu:bridge` names the driver it found, which is where that
+  would show.
 - **A load is a new context** (patch 0010, `CheckGLContext`). The context id
   is compared at the top of every frame; when it has moved, or the engine said
   a state was loaded and this core had not yet looked (chimera issue 126),
@@ -354,6 +358,50 @@ than the hardware one at 4x here, because the processor is the cheap part.
 What that does NOT show: a game that reads its picture back, a state made in
 one process and loaded in another on the card, or any other card.
 
+## Discs, the lid and the cards (2026-10-09)
+
+**Several discs.** The project's Disc slot takes up to eight, and their order
+is the selector's. The controls are the ones the Opera and Flycast cores
+have: `Previous Disc` and `Next Disc` move a selector and touch nothing;
+`Disc Swap` is the lid, up for as long as it is held (upstream's
+`System::RemoveMedia`: the drive reports its shell open and raises the
+interrupt a game waiting for a disc watches for) and closing on the selected
+disc (`System::InsertMedia`). With the selector untouched it closes on the
+next one, so the button alone steps through a set. Which disc is in, which is
+selected and whether the lid is up are in the state. The drive exports say
+which is which, and its light is lit on a frame a sector was read (patch
+0011, one hook in `CDROM::DoSectorRead`).
+
+Measured with the two games as one project's two discs: Disc Swap held from
+frame 1300 for 120 frames, and upstream's log says the CD was removed at
+21.73 s and "Inserted media from Need for Speed 5 ... (SLUS-01104)" at
+23.74 s; native and sandbox agree, and a state kept at 1250 and restored at
+1600 replays the swap. They are not a set, so nothing asked for the second
+disc: this proves the drive, not a game's disc change.
+
+**Memory cards** are upstream's non-persistent kind: 128 KB of the machine's
+memory, in every state. `memcard1` is on by default and `memcard2` off. The
+save-data exports hand each present card over as `memcard1.mcd` /
+`memcard2.mcd`; a project's Save Data slot brings one in under the same name,
+copied into the card after boot and before the guest is sealed. Three things
+are refused rather than ignored: a file that is not a 131072-byte card image,
+a card under any other name, and a card for a slot that is switched off.
+Measured: a formatted card exports identically from both flavors and from
+the engine; a card with sixteen bytes marked in block 5 goes in and comes
+back out byte for byte.
+
+**Reset** is the button on the case (`System::ResetSystem`), on the frame it
+is first held.
+
+**A movie's row has only the controls the machine has.** The engine asks the
+core which declared wires are live (`IsButtonActive`, `IsAxisActive`) and a
+movie has columns for those alone: two console columns with one disc and four
+with several, fourteen buttons and no sticks for a digital pad, nothing for an
+empty port. A test project written with every declared column stopped
+parsing the day the console's buttons were declared ("unparseable movie entry
+at frame 0"). `tests/make-project.py` now takes the row from the engine: a
+project of no frames is asked to record one.
+
 ## A game played (2026-10-09)
 
 Need for Speed: Porsche Unleashed (USA), SLUS-01104: one image of a data
@@ -430,7 +478,7 @@ upwards), and nothing at all on Windows.
 
 `waterbox/run-gate.sh`, in tiers: with nothing, with a BIOS, with a disc,
 with a Chimera checkout, with a GL context for the bridge, with the 3D game.
-30 legs, seven and a half minutes here, all of them passing on 2026-10-09
+35 legs, eight minutes here, all of them passing on 2026-10-09
 with the SCPH-7001 BIOS, NHL Blades of Steel 2000 (USA) and Need for Speed:
 Porsche Unleashed (USA). Five are the hardware renderer's on softpipe,
 sandbox against itself, and six are the bridge's, drawn by llvmpipe.
@@ -471,17 +519,46 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 | `StateLoaded` writing to RAM, again | `play:rewind`, with every other rerecord and rewind leg |
 | sound dropped under the GL renderers, again | `gpu:play` |
 | the true-colour setting ignored, alone | its picture is the plain one while bilinear's is not (by hand, the leg's own comparison) |
+| the Reset button not connected | `console:reset` |
+| no card exported | `cards:export`, and `engine:project` on the card it compares |
+| a brought card not read, alone | the card that went in does not come back, and a file that is not a card is no longer refused (by hand, the two legs' own comparisons) |
+| the lid never moving | `disc:swap` ("second disc inserted: 0; swapped and idle are the SAME run") |
 | a binding for a button that is not declared | `keybinds` |
 | a source newer than `core.wbx` | `build:fresh` |
 | a project with `fast_boot` against the reference without | the `engine:project` comparison, by hand; in the gate that leg was seen red through its stale-package arm |
+
+## The frontend gate
+
+`waterbox/tests/run-frontend.sh --chimera-root <chimera>`: the installed
+package through the real frontend, headless under Mono, from projects. Four
+legs, half a minute, passing on 2026-10-09: the console with an empty tray
+for 600 frames, a PAL console (a setting that has to arrive, and has to make
+another machine), the game from a cue sheet and its image for 1500 frames -
+each ending on the first megabyte of the native reference's Main RAM - and
+the package's bindings becoming the frontend's. Seen red: a binding changed
+in the repository after the package was built (`keybinds` names it). The
+other three carry their controls: the PAL machine must differ from the NTSC
+one, and the disc run from the empty console.
+
+Two things the frontend found that the engine's runner had not:
+
+- **An empty slot still mounts its name.** A project with nothing in its Disc
+  slot arrives with a file called `disc` that has nothing in it. The adapter
+  read that as "a file that is no disc image this core knows" and refused to
+  boot; it is an empty tray.
+- **The frontend reads a movie by its LogKey.** `chimera-run` took rows whose
+  key named controls the machine did not have; the frontend's movie
+  controller indexed past its array on the first frame. The key and the rows
+  are now made from one list of live controls, and the engine's own recorded
+  row is the check on that list.
 
 Chimera's contract tests pass against the package alone (12 of 12) and fail
 with a binding for an undeclared button added to a copy of it (11 of 12,
 naming `duckstation/PlayStation Controllers: P1 Turbo Nonsense`).
 
 What the gate does not stand in for (docs/gates.md, E): two games, both
-NTSC-U on an NTSC-U BIOS, one of them played for half a minute. No save was
-written, no second disc was swapped in, no PAL or Japanese console was
+NTSC-U on an NTSC-U BIOS, one of them played for half a minute. No game wrote
+a save, no game asked for its second disc, no PAL or Japanese console was
 booted, and every bridged leg was drawn by llvmpipe - the card's results are
 measured by hand and written above.
 

@@ -177,9 +177,10 @@ disc="${CHIMERA_PS1_DISC:-}"
 if [ -z "$bios" ]; then
 	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted \
 		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind \
-		gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord cue:alone \
+		gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord \
+		console:reset cards:export cards:import cards:refused cue:alone \
 		disc:compare disc:rerecord disc:rewind disc:nameless engine:project \
-		play:compare play:rewind gpu:play gpu:enhancements; do
+		play:compare play:rewind gpu:play gpu:enhancements disc:swap; do
 		report "$leg" SKIP "needs a PlayStation BIOS: tests/roms/bios/PSX_4.1(A).bin, or CHIMERA_PS1_BIOS=<file>"
 	done
 	echo
@@ -403,6 +404,79 @@ else
 	fi
 fi
 
+# ---- the console's own button -------------------------------------------------
+
+# Reset, on the case: pressed at the menu, the console starts over, and the
+# run cannot be the one in which nobody pressed it.
+native "$work/shell" --frames 1500 2>/dev/null | digests > "$work/reset.idle"
+native "$work/shell" --frames 1500 --press 1150:3:34 2>/dev/null | digests > "$work/reset.n"
+wbx "$work/shell" --frames 1500 --press 1150:3:34 2>/dev/null | digests > "$work/reset.w"
+if [ -s "$work/reset.n" ] && ! cmp -s "$work/reset.idle" "$work/reset.n" && cmp -s "$work/reset.n" "$work/reset.w"; then
+	report "console:reset" PASS "Reset at frame 1150 is a different run from the idle one, and the same run in the sandbox"
+else
+	report "console:reset" FAIL "pressed and idle $(cmp -s "$work/reset.idle" "$work/reset.n" && echo "are the SAME run" || echo differ); flavors $(cmp -s "$work/reset.n" "$work/reset.w" && echo agree || echo DIFFER)"
+fi
+
+# ---- memory cards ---------------------------------------------------------------
+#
+# A card is the machine's memory. It leaves through the save-data exports as
+# memcard1.mcd, a project brings one in under that name, and the one must be
+# able to become the other.
+mkdir -p "$work/cards.n" "$work/cards.w" "$work/cards.back"
+native "$work/shell" --frames 300 --savedata-out "$work/cards.n" > "$work/cards.n.log" 2>/dev/null
+wbx "$work/shell" --frames 300 --savedata-out "$work/cards.w" > "$work/cards.w.log" 2>/dev/null
+card="$work/cards.n/memcard1.mcd"
+if [ -f "$card" ] && [ "$(stat -c %s "$card")" = 131072 ] && [ "$(head -c 2 "$card")" = "MC" ] \
+	&& [ ! -e "$work/cards.n/memcard2.mcd" ] && cmp -s "$card" "$work/cards.w/memcard1.mcd"; then
+	report "cards:export" PASS "slot 1's card leaves as memcard1.mcd, 131072 bytes of a formatted card, the same from both flavors; the empty slot 2 leaves nothing"
+else
+	report "cards:export" FAIL "$(ls -l "$work/cards.n" "$work/cards.w" 2>&1 | tr '\n' ' ' | cut -c1-200)"
+fi
+
+if [ ! -f "$card" ]; then
+	report "cards:import" FAIL "no exported card to bring back"
+	report "cards:refused" FAIL "no exported card to make the wrong files from"
+else
+	# a card somebody wrote on: the exported one with a mark in block 5, which
+	# is data and under no checksum
+	mkwork "$work/cardin" "$bios"
+	python3 - "$card" "$work/cardin/memcard1.mcd" <<'PY'
+import sys
+d = bytearray(open(sys.argv[1], 'rb').read())
+d[5 * 8192 + 100:5 * 8192 + 116] = b'CHIMERA-WAS-HERE'
+open(sys.argv[2], 'wb').write(d)
+PY
+	printf '{"savedata":["memcard1.mcd"]}' > "$work/cardin/slots"
+	wbx "$work/cardin" --frames 300 --savedata-out "$work/cards.back" > /dev/null 2>&1
+	if cmp -s "$work/cardin/memcard1.mcd" "$work/cards.back/memcard1.mcd" && ! cmp -s "$card" "$work/cards.back/memcard1.mcd"; then
+		report "cards:import" PASS "a card a project brings is the card the console has: it comes back out byte for byte, and it is not the formatted one"
+	else
+		report "cards:import" FAIL "the card that went in $(cmp -s "$work/cardin/memcard1.mcd" "$work/cards.back/memcard1.mcd" && echo "came back" || echo "did NOT come back"); it $(cmp -s "$card" "$work/cards.back/memcard1.mcd" && echo "IS the formatted card" || echo "differs from the formatted card")"
+	fi
+
+	# three files this console must not swallow: not a card, a card under a
+	# name nothing reads, and a card for a slot that is switched off
+	refused=0
+	mkwork "$work/bad1" "$bios"; head -c 1000 /dev/zero > "$work/bad1/memcard1.mcd"
+	printf '{"savedata":["memcard1.mcd"]}' > "$work/bad1/slots"
+	wbx "$work/bad1" --frames 1 2>&1 | plain | grep -q 'not a PlayStation memory card image' && refused=$((refused + 1))
+	mkwork "$work/bad2" "$bios"; cp "$card" "$work/bad2/mysave.mcr"
+	printf '{"savedata":["mysave.mcr"]}' > "$work/bad2/slots"
+	wbx "$work/bad2" --frames 1 2>&1 | plain | grep -q 'rename it to the card it is' && refused=$((refused + 1))
+	mkwork "$work/bad3" "$bios"; cp "$card" "$work/bad3/memcard2.mcd"
+	printf '{"savedata":["memcard2.mcd"]}' > "$work/bad3/slots"
+	wbx "$work/bad3" --frames 1 2>&1 | plain | grep -q 'Memory Card 2 is switched off' && refused=$((refused + 1))
+	# ...and the same card for slot 2 is taken once the slot is on
+	mkwork "$work/ok2" "$bios" '{"memcard2":true}'; cp "$card" "$work/ok2/memcard2.mcd"
+	printf '{"savedata":["memcard2.mcd"]}' > "$work/ok2/slots"
+	taken="$(wbx "$work/ok2" --frames 1 2>/dev/null | grep -c '^frames=1')"
+	if [ "$refused" -eq 3 ] && [ "$taken" -eq 1 ]; then
+		report "cards:refused" PASS "a file that is not a card, a card under another name and a card for a slot that is off are each refused with their reason; the last is taken once the slot is on"
+	else
+		report "cards:refused" FAIL "$refused of 3 refusals seen; the card for an enabled slot 2 was $([ "$taken" -eq 1 ] && echo taken || echo REFUSED)"
+	fi
+fi
+
 # a cue sheet handed over without the files it names
 mkwork "$work/cue" "$bios"
 printf 'FILE "game.bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n' > "$work/cue/disc"
@@ -483,15 +557,24 @@ else
 	elif [ "$cpkg" -ot "$gst/core.wbx" ]; then
 		report "engine:project" FAIL "the installed package is older than core.wbx: run waterbox/build-package.sh"
 	else
-		ep="$work/engine"; mkdir -p "$ep"
+		ep="$work/engine"; mkdir -p "$ep" "$ep/cards.native" "$ep/cards.engine"
 		args=("disc=$work/disc/$(basename "$disc")")
 		while IFS= read -r f; do args+=("support=$discdir/$f"); done < <(sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$disc")
-		python3 "$here/tests/make-project.py" "$cpkg" "$ep/gate.chimeraProject" 900 "${args[@]}" > "$ep/project.log" 2>&1
+		# the row of a movie is the engine's to say (make-project.py): a project
+		# of no frames is asked for one frame of it, and the real project is
+		# written from that
+		python3 "$here/tests/make-project.py" "$cpkg" "$ep/shape.chimeraProject" 0 "${args[@]}" > "$ep/project.log" 2>&1
+		"$crun" --project "$ep/shape.chimeraProject" "$cpkg" --files "$discdir" --firmware "bios=$bios" \
+			--frames 1 --record "$ep/shape.txt" > "$ep/shape.log" 2>&1
+		idle_row="$(head -1 "$ep/shape.txt" 2>/dev/null)"
+		python3 "$here/tests/make-project.py" "$cpkg" "$ep/gate.chimeraProject" 900 "--idle-row=$idle_row" "${args[@]}" >> "$ep/project.log" 2>&1
 		"$crun" --project "$ep/gate.chimeraProject" "$cpkg" --files "$discdir" --firmware "bios=$bios" \
-			--dump "Main RAM=$ep/engine.ram" --meta "$ep/meta.txt" > "$ep/run.log" 2>&1
+			--dump "Main RAM=$ep/engine.ram" --export-savedata "$ep/cards.engine" --meta "$ep/meta.txt" > "$ep/run.log" 2>&1
 		native "$work/disc" --frames 900 --dump-domain "Main RAM" "$ep/native.ram" > /dev/null 2>&1
-		if grep -q '^status=OK' "$ep/meta.txt" 2>/dev/null && [ -s "$ep/native.ram" ] && cmp -s "$ep/native.ram" "$ep/engine.ram"; then
-			report "engine:project" PASS "the installed package, from a project, through chimera-run: Main RAM after 900 frames is the native reference's"
+		native "$work/disc" --frames 900 --savedata-out "$ep/cards.native" > /dev/null 2>&1
+		if grep -q '^status=OK' "$ep/meta.txt" 2>/dev/null && [ -s "$ep/native.ram" ] && cmp -s "$ep/native.ram" "$ep/engine.ram" \
+			&& cmp -s "$ep/cards.native/memcard1.mcd" "$ep/cards.engine/memcard1.mcd"; then
+			report "engine:project" PASS "the installed package, from a project, through chimera-run: Main RAM after 900 frames is the native reference's, and so is the memory card it exports"
 		else
 			report "engine:project" FAIL "$(grep -h -E '^(status|detail)=' "$ep/meta.txt" 2>/dev/null | tr '\n' ' ') $(tail -1 "$ep/run.log" | plain | cut -c1-160)"
 		fi
@@ -590,6 +673,36 @@ else
 		else
 			report "gpu:enhancements" FAIL "${wrong#; }"
 		fi
+	fi
+fi
+
+# ---- two discs, and the lid ----------------------------------------------------
+#
+# The two games as one project's two discs. At frame 1300 Disc Swap is held
+# for two seconds: the lid goes up, and comes down on the second disc. The
+# games are not a set - nothing asks for the second disc - so what this
+# proves is the DRIVE: the console is told the lid opened, the new disc is
+# the one read, and all of it is machine state.
+if [ -z "$disc" ] || [ -z "$game3d" ]; then
+	report "disc:swap" SKIP "needs both games: the disc and the 3D game above"
+else
+	mkwork "$work/two" "$bios" '{"verbose":true}'
+	for sheet in "$disc" "$game3d"; do
+		cp "$sheet" "$work/two/"
+		sed -n 's/^ *FILE "\(.*\)".*/\1/p' "$sheet" | sort -u | while IFS= read -r f; do ln -s "$(dirname "$sheet")/$f" "$work/two/$f"; done
+	done
+	printf '{"disc":["%s","%s"]}' "$(basename "$disc")" "$(basename "$game3d")" > "$work/two/slots"
+	second="$(native "$work/two" --frames 1500 --press 1300:120:37 2>&1 | plain | grep -c 'Inserted media from .*SLUS-01104')"
+	printf '{}' > "$work/two/settings"
+	native "$work/two" --frames 1700 2>/dev/null | digests > "$work/two.idle"
+	native "$work/two" --frames 1700 --press 1300:120:37 2>/dev/null | digests > "$work/two.n"
+	wbx "$work/two" --frames 1700 --press 1300:120:37 2>/dev/null | digests > "$work/two.w"
+	wbx "$work/two" --frames 1700 --press 1300:120:37 --rewind 1250:1600 2>/dev/null | digests > "$work/two.rw"
+	if [ "$second" -ge 1 ] && [ -s "$work/two.n" ] && ! cmp -s "$work/two.idle" "$work/two.n" \
+		&& cmp -s "$work/two.n" "$work/two.w" && cmp -s "$work/two.w" "$work/two.rw"; then
+		report "disc:swap" PASS "the lid held up for 120 frames closes on the second disc; identical in the sandbox, and a rewind from before the swap to after it replays it"
+	else
+		report "disc:swap" FAIL "second disc inserted: $second; swapped and idle $(cmp -s "$work/two.idle" "$work/two.n" && echo "are the SAME run" || echo differ); flavors $(cmp -s "$work/two.n" "$work/two.w" && echo agree || echo DIFFER); rewind $(cmp -s "$work/two.w" "$work/two.rw" && echo agrees || echo DIFFERS)"
 	fi
 fi
 

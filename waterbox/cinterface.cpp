@@ -26,6 +26,8 @@
 #include "core/gpu.h"
 #include "core/gpu_hw.h"
 #include "core/host.h"
+#include "core/memory_card.h"
+#include "core/memory_card_image.h"
 #include "core/pad.h"
 #include "core/settings.h"
 #include "core/spu.h"
@@ -127,6 +129,130 @@ ControllerType g_portType[PORTS] = {ControllerType::None, ControllerType::None};
 u8 g_held[PORTS][PORT_BUTTONS];
 u8 g_stick[PORTS][PORT_AXES] = {{128, 128, 128, 128}, {128, 128, 128, 128}};
 
+// After the pads, the console's own controls: its Reset button, and the lid.
+constexpr int WIRE_CONSOLE = PORTS * PORT_BUTTONS;
+constexpr int WIRE_RESET = WIRE_CONSOLE + 0;
+constexpr int WIRE_PREV_DISC = WIRE_CONSOLE + 1;
+constexpr int WIRE_NEXT_DISC = WIRE_CONSOLE + 2;
+constexpr int WIRE_DISC_SWAP = WIRE_CONSOLE + 3;
+constexpr int WIRE_COUNT = WIRE_CONSOLE + 4;
+u8 g_console[4];     // as held this frame
+u8 g_consoleWas[4];  // as held the frame before
+
+// ---- the discs ---------------------------------------------------------------
+
+// Every disc the project put in its Disc slot, in the slot's order, which is
+// the order the selector steps through. All of it is the machine's - which
+// disc is in the drive, which one the selector is on, whether the lid is up -
+// and travels in a state, so a movie that changes discs replays the change.
+constexpr int MAX_DISCS = 8;
+char g_discs[MAX_DISCS][512];
+int g_discCount;
+int g_discInserted = -1; // -1: the lid is up, or the tray was empty all along
+int g_discWasInserted;   // the disc that was in when the lid went up
+int g_discSelected;
+bool g_lidUp;
+int g_driveLight;        // the drive read a sector this frame
+
+void DiscControls()
+{
+  const bool prev = g_console[1] && !g_consoleWas[1];
+  const bool next = g_console[2] && !g_consoleWas[2];
+  if (g_discCount > 1)
+  {
+    // PREVIOUS and NEXT are a selector: they choose, and touch no hardware.
+    // They wrap both ways (chimera issue 47: a selector that ran off the end
+    // could never reach the second disc again).
+    if (prev)
+      g_discSelected = (g_discSelected + g_discCount - 1) % g_discCount;
+    if (next)
+      g_discSelected = (g_discSelected + 1) % g_discCount;
+    if ((prev || next) && chimera_verbose)
+      std::fprintf(stderr, "duckstation: disc selector: %d of %d (%s)\n", g_discSelected + 1, g_discCount,
+                   g_discs[g_discSelected]);
+  }
+
+  // DISC SWAP is the lid. Held, it is up: the drive reports the shell open
+  // and no disc, which is what a game asking for its next disc waits to see.
+  // Released, the SELECTED disc is in and the drive spins it up. Both in one
+  // frame would be a lid that never opened as far as a polling game can
+  // tell, so how long it stays up is how long the button is held - the
+  // player's decision, and the movie's. With the selector untouched the lid
+  // closes on the next disc, so the button alone steps through them.
+  const bool up = g_console[3] != 0;
+  if (up == g_lidUp || g_discCount == 0)
+    return;
+
+  g_lidUp = up;
+  if (up)
+  {
+    System::RemoveMedia();
+    g_discInserted = -1;
+    return;
+  }
+
+  if (g_discCount > 1 && g_discSelected == g_discWasInserted)
+    g_discSelected = (g_discWasInserted + 1) % g_discCount;
+  if (System::InsertMedia(g_discs[g_discSelected]))
+  {
+    g_discInserted = g_discSelected;
+    g_discWasInserted = g_discSelected;
+  }
+  else
+  {
+    // the lid stays up on an empty tray: a drive that believes it holds a
+    // disc it cannot read is worse than one that knows it is empty
+    g_lidUp = true;
+    std::fprintf(stderr, "duckstation: disc %d (%s) will not open; the lid stays up\n", g_discSelected + 1,
+                 g_discs[g_discSelected]);
+  }
+}
+
+// ---- memory cards -------------------------------------------------------------
+
+// A card is 128KB of the machine's own memory (upstream's non-persistent
+// kind): it is in every state, it rewinds with the game that wrote it, and
+// nothing reaches a disk. What a project starts with comes in through its
+// Save Data slot under the names below, and what a session ends with leaves
+// through the save-data exports under the same names, so one round-trips
+// into the other.
+constexpr int CARDS = 2;
+constexpr const char* kCardNames[CARDS] = {"memcard1.mcd", "memcard2.mcd"};
+bool g_cardPresent[CARDS];
+
+// The card image a project brought, into the card the console booted with.
+// False, with g_loadError set, for a file that is not a card.
+bool SeedCard(int slot)
+{
+  if (!FileSystem::FileExists(kCardNames[slot]))
+    return true;
+
+  MemoryCard* const card = Pad::GetMemoryCard(static_cast<u32>(slot));
+  if (!card)
+  {
+    snprintf(g_loadError, sizeof(g_loadError),
+             "the project brings %s, and Memory Card %d is switched off: turn the card on, or take the file out.",
+             kCardNames[slot], slot + 1);
+    return false;
+  }
+
+  std::FILE* const f = std::fopen(kCardNames[slot], "rb");
+  MemoryCardImage::DataArray& data = card->GetData();
+  u8 extra;
+  const bool ok = f && std::fread(data.data(), 1, data.size(), f) == data.size() && std::fread(&extra, 1, 1, f) == 0;
+  if (f)
+    std::fclose(f);
+  if (!ok || !MemoryCardImage::IsValid(data))
+  {
+    snprintf(g_loadError, sizeof(g_loadError),
+             "%s is not a PlayStation memory card image: a card is exactly 131072 bytes beginning \"MC\" (the "
+             "usual .mcd, .mcr or .mc). Convert a .gme, .vgs or single-save file with a card manager first.",
+             kCardNames[slot]);
+    return false;
+  }
+  return true;
+}
+
 ControllerType ParsePort(const char* key, ControllerType dflt)
 {
   char v[24] = "";
@@ -181,6 +307,11 @@ const char* NameTheBareFile()
     return nullptr;
   const size_t got = std::fread(head, 1, sizeof(head), f);
   std::fclose(f);
+
+  // A project with nothing in its Disc slot still mounts the name, with
+  // nothing in it: that is an empty tray, not a file to be refused.
+  if (got == 0)
+    return nullptr;
 
   static const u8 kSync[12] = {0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
   const char* ext;
@@ -604,8 +735,15 @@ void ApplySettings(SettingsInterface& si)
     si.SetIntValue(section.c_str(), "InvertLeftStick", 0);
     si.SetIntValue(section.c_str(), "InvertRightStick", 0);
   }
-  si.SetStringValue("MemoryCards", "Card1Type", Settings::GetMemoryCardTypeName(MemoryCardType::NonPersistent));
-  si.SetStringValue("MemoryCards", "Card2Type", Settings::GetMemoryCardTypeName(MemoryCardType::None));
+  // Memory cards: in the machine's own memory, or not plugged in.
+  g_cardPresent[0] = wbx_setting_bool("memcard1", 1) != 0;
+  g_cardPresent[1] = wbx_setting_bool("memcard2", 0) != 0;
+  si.SetStringValue("MemoryCards", "Card1Type",
+                    Settings::GetMemoryCardTypeName(g_cardPresent[0] ? MemoryCardType::NonPersistent :
+                                                                       MemoryCardType::None));
+  si.SetStringValue("MemoryCards", "Card2Type",
+                    Settings::GetMemoryCardTypeName(g_cardPresent[1] ? MemoryCardType::NonPersistent :
+                                                                       MemoryCardType::None));
   si.SetStringValue("ControllerPorts", "MultitapMode", Settings::GetMultitapModeName(MultitapMode::Disabled));
 
   si.SetStringValue("Audio", "Backend", AudioStream::GetBackendName(AudioBackend::Null));
@@ -694,6 +832,13 @@ extern "C" uint64_t ChimeraClockNanoseconds(void)
   const uint64_t ticks = static_cast<uint64_t>(TimingEvents::GetGlobalTickCounter());
   const uint64_t hz = static_cast<uint64_t>(System::g_ticks_per_second);
   return (ticks / hz) * UINT64_C(1000000000) + ((ticks % hz) * UINT64_C(1000000000)) / hz;
+}
+
+// patches: "the drive says when it read". The console read a sector.
+static int g_driveLightNow;
+extern "C" void chimera_drive_read(void)
+{
+  g_driveLightNow = 1;
 }
 
 // patches: "a lag frame is a frame nobody polled". A pad answered the console.
@@ -792,17 +937,57 @@ ECL_EXPORT int Init(void)
   // PlayStation sitting at its own menu, which is a machine worth booting.
   SystemBootParameters params;
   char name[512];
-  if (wbx_slot_first("disc", name, sizeof(name)) != nullptr && name[0] != '\0')
+  g_discCount = std::min<int>(wbx_slot_count("disc"), MAX_DISCS);
+  for (int i = 0; i < g_discCount; i++)
   {
-    // a project: the file is mounted under its own name, extension and all
-    params.filename = name;
+    if (wbx_slot_name("disc", i, g_discs[i], sizeof(g_discs[i])) == nullptr)
+    {
+      g_discCount = i;
+      break;
+    }
+  }
+  if (g_discCount > 0)
+  {
+    // a project: every disc is mounted under its own name, extension and all
+    params.filename = g_discs[0];
+    g_discInserted = 0;
   }
   else if (Exists("disc"))
   {
     const char* const bare = NameTheBareFile();
-    if (!bare)
+    if (!bare && g_loadError[0] != '\0')
       return 0;
-    params.filename = bare;
+    if (bare)
+    {
+      params.filename = bare;
+      snprintf(g_discs[0], sizeof(g_discs[0]), "%s", bare);
+      g_discCount = 1;
+      g_discInserted = 0;
+    }
+  }
+
+  // What a project put in its Save Data slot must be something this machine
+  // reads. A saved game under a name nothing opens, booting to a blank card,
+  // is worse than a project that will not boot.
+  {
+    char entry[512];
+    const int saves = wbx_slot_count("savedata");
+    for (int i = 0; i < saves; i++)
+    {
+      if (wbx_slot_name("savedata", i, entry, sizeof(entry)) == nullptr)
+        break;
+      bool known = false;
+      for (int c = 0; c < CARDS; c++)
+        known = known || (strcmp(entry, kCardNames[c]) == 0);
+      if (!known)
+      {
+        snprintf(g_loadError, sizeof(g_loadError),
+                 "the project's save data has a file called %s, and this console reads memcard1.mcd and "
+                 "memcard2.mcd: rename it to the card it is.",
+                 entry);
+        return 0;
+      }
+    }
   }
 
   params.override_fullscreen = false;
@@ -812,6 +997,12 @@ ECL_EXPORT int Init(void)
   {
     Fail("the machine would not boot", error);
     return 0;
+  }
+
+  for (int c = 0; c < CARDS; c++)
+  {
+    if (!SeedCard(c))
+      return 0;
   }
 
   // The field rate, exactly: the video crystal over the ticks in a line times
@@ -842,6 +1033,11 @@ ECL_EXPORT int Init(void)
 
 ECL_EXPORT void SetButton(int32_t index, int32_t state)
 {
+  if (index >= WIRE_CONSOLE && index < WIRE_COUNT)
+  {
+    g_console[index - WIRE_CONSOLE] = state ? 1 : 0;
+    return;
+  }
   if (index < 0 || index >= PORTS * PORT_BUTTONS)
     return;
 
@@ -872,6 +1068,14 @@ ECL_EXPORT void SetButton(int32_t index, int32_t state)
  * database on top of it), so the controller that is there is asked. */
 ECL_EXPORT int IsButtonActive(int32_t index)
 {
+  // Reset always; the lid when there is a disc to put under it; the selector
+  // when there is more than one to choose from
+  if (index == WIRE_RESET)
+    return 1;
+  if (index == WIRE_DISC_SWAP)
+    return g_discCount > 0 ? 1 : 0;
+  if (index == WIRE_PREV_DISC || index == WIRE_NEXT_DISC)
+    return g_discCount > 1 ? 1 : 0;
   if (index < 0 || index >= PORTS * PORT_BUTTONS)
     return 0;
 
@@ -947,6 +1151,15 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
   CheckGLContext();
 #endif
 
+  // The console's own controls, before the frame they are held for. Reset is
+  // the button on the case: pressed, the machine starts again with whatever
+  // is in the drive and on the cards.
+  DiscControls();
+  if (g_console[0] && !g_consoleWas[0])
+    System::ResetSystem();
+  std::memcpy(g_consoleWas, g_console, sizeof(g_console));
+  g_driveLightNow = 0;
+
   // One frame: Host::PumpMessagesOnCPUThread pauses the system at the end of
   // the frame the machine draws, and Execute returns when it is paused.
   System::PauseSystem(false);
@@ -954,6 +1167,7 @@ ECL_EXPORT void FrameAdvance(uint64_t packed)
 
   // Turbo skips the readback, never the drawing: what the renderer draws
   // stays in VRAM, and a frame not drawn is a picture lost, not deferred.
+  g_driveLight = g_driveLightNow;
   if (g_renderEnabled)
     ComposeFrame();
   g_nsamples = ChimeraAudioTake(g_soundOut, MAX_AUDIO_FRAMES);
@@ -1105,21 +1319,74 @@ ECL_EXPORT int GetMemoryDomainWritable(int which)
   return which == 0;
 }
 
+// ---- save data: the memory cards ----------------------------------------------
+
+static int g_saveList[CARDS];
+static int g_saveCount;
+
 ECL_EXPORT int32_t GetSaveDataFileCount(void)
 {
-  return 0;
+  g_saveCount = 0;
+  for (int c = 0; c < CARDS; c++)
+  {
+    if (g_booted && Pad::GetMemoryCard(static_cast<u32>(c)))
+      g_saveList[g_saveCount++] = c;
+  }
+  return g_saveCount;
 }
+
 ECL_EXPORT const char* GetSaveDataFileName(int32_t i)
 {
-  return "";
+  return (i >= 0 && i < g_saveCount) ? kCardNames[g_saveList[i]] : "";
 }
+
 ECL_EXPORT int64_t GetSaveDataFileSize(int32_t i)
 {
-  return 0;
+  return (i >= 0 && i < g_saveCount) ? static_cast<int64_t>(MemoryCardImage::DATA_SIZE) : 0;
 }
+
 ECL_EXPORT const uint8_t* GetSaveDataFileBuffer(int32_t i)
 {
-  return nullptr;
+  if (i < 0 || i >= g_saveCount)
+    return nullptr;
+  MemoryCard* const card = Pad::GetMemoryCard(static_cast<u32>(g_saveList[i]));
+  return card ? card->GetData().data() : nullptr;
+}
+
+// ---- the drive ------------------------------------------------------------------
+
+/* One drive, when the project put a disc in it. Lit on a frame the console
+ * read a sector. Which disc it holds and which the selector is on are told
+ * apart, because the console tells them apart: between Next Disc and the lid
+ * closing, the drive holds one disc - or none - and the selector is on
+ * another. */
+ECL_EXPORT int32_t GetDriveCount(void)
+{
+  return g_discCount > 0 ? 1 : 0;
+}
+ECL_EXPORT const char* GetDriveName(int32_t i)
+{
+  return "CD";
+}
+ECL_EXPORT int32_t GetDriveLight(int32_t i)
+{
+  return g_driveLight;
+}
+ECL_EXPORT int32_t GetDriveMediaCount(int32_t i)
+{
+  return g_discCount;
+}
+ECL_EXPORT const char* GetDriveMediaName(int32_t i, int32_t n)
+{
+  return (n >= 0 && n < g_discCount) ? g_discs[n] : "";
+}
+ECL_EXPORT int32_t GetDriveMediaSelected(int32_t i)
+{
+  return g_discSelected;
+}
+ECL_EXPORT int32_t GetDriveMediaInserted(int32_t i)
+{
+  return g_discInserted;
 }
 
 } // extern "C"

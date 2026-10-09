@@ -28,13 +28,18 @@
  *   10 L1  11 R1  12 L2  13 R2  14 L3  15 R3  16 Analog
  *
  * and per port four axes (LX LY RX RY), each the byte the pad reports: 0..255,
- * 128 at rest. The macro names are inherited from the PlayStation 2 core's
- * harness, which this one was made from; a "slot" is a port here. */
+ * 128 at rest. After the two ports, the console's own four:
+ *
+ *   34 Reset  35 Previous Disc  36 Next Disc  37 Disc Swap
+ *
+ * The macro names are inherited from the PlayStation 2 core's harness, which
+ * this one was made from; a "slot" is a port here. */
 #define GATE_DS2_BTNS 17
 #define GATE_PORT_BTNS 17
 #define GATE_PORTS 2
 #define GATE_SLOTS 2
-#define GATE_BTN_COUNT (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS))
+#define GATE_CONSOLE_BTNS 4
+#define GATE_BTN_COUNT (GATE_PORT_BTNS * GATE_PORTS + GATE_DS2_BTNS * (GATE_SLOTS - GATE_PORTS) + GATE_CONSOLE_BTNS)
 #define GATE_SLOT_BASE(slot) \
 	((slot) < GATE_PORTS ? (slot) * GATE_PORT_BTNS \
 		: GATE_PORT_BTNS * GATE_PORTS + ((slot) - GATE_PORTS) * GATE_DS2_BTNS)

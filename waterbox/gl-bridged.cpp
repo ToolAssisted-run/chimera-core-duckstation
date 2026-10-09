@@ -29,54 +29,9 @@
 
 #include <memory>
 
-#include <cstring>
-
 namespace {
 
 chimera_gl_bridge_fn g_bridge;
-
-// glGetString, with the lifetime OpenGL promises. A driver's strings are
-// static: a caller may ask for the vendor, then the renderer, then the
-// version, and read all three afterwards - upstream does exactly that, and
-// then decides which driver workarounds to apply from what it read. The
-// generated wrapper copies each answer into ONE buffer, so the three pointers
-// were one pointer and every string was the last one asked for ("GL_VENDOR:
-// 4.50", seen on the first bridged run). Each name gets its own here.
-using GetStringFn = const GLubyte*(GLAD_API_PTR*)(GLenum);
-GetStringFn g_bridge_get_string;
-
-const GLubyte* GLAD_API_PTR StableGetString(GLenum name)
-{
-  static char strings[5][4096];
-  int slot;
-  switch (name)
-  {
-    case GL_VENDOR:
-      slot = 0;
-      break;
-    case GL_RENDERER:
-      slot = 1;
-      break;
-    case GL_VERSION:
-      slot = 2;
-      break;
-    case GL_SHADING_LANGUAGE_VERSION:
-      slot = 3;
-      break;
-    case GL_EXTENSIONS:
-      slot = 4;
-      break;
-    default:
-      return g_bridge_get_string(name);
-  }
-
-  const GLubyte* const answer = g_bridge_get_string(name);
-  if (!answer)
-    return nullptr;
-  std::strncpy(strings[slot], reinterpret_cast<const char*>(answer), sizeof(strings[slot]) - 1);
-  strings[slot][sizeof(strings[slot]) - 1] = '\0';
-  return reinterpret_cast<const GLubyte*>(strings[slot]);
-}
 
 class ChimeraBridgedGLContext final : public OpenGLContext
 {
@@ -94,16 +49,7 @@ public:
 
   // Every name resolves to a wrapper, or to null for a call this core was
   // not built with - which is what a driver answers for a call it lacks.
-  void* GetProcAddress(const char* name) override
-  {
-    void* const wrapper = chimera_gl_lookup(name);
-    if (wrapper && std::strcmp(name, "glGetString") == 0)
-    {
-      g_bridge_get_string = reinterpret_cast<GetStringFn>(wrapper);
-      return reinterpret_cast<void*>(&StableGetString);
-    }
-    return wrapper;
-  }
+  void* GetProcAddress(const char* name) override { return chimera_gl_lookup(name); }
 
   bool ChangeSurface(const WindowInfo& new_wi) override
   {

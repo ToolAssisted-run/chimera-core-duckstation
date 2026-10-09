@@ -1,0 +1,21 @@
+diff --git a/src/core/cdrom.cpp b/src/core/cdrom.cpp
+index 42b1f22..b742749 100644
+--- a/src/core/cdrom.cpp
++++ b/src/core/cdrom.cpp
+@@ -3004,8 +3004,16 @@ void CDROM::StopMotor()
+   s_last_sector_header_valid = false; // TODO: correct?
+ }
+ 
++#ifdef CHIMERA_WATERBOX
++// The embedder's drive light: lit on a frame the console read a sector.
++extern "C" void chimera_drive_read(void);
++#endif
++
+ void CDROM::DoSectorRead()
+ {
++#ifdef CHIMERA_WATERBOX
++  chimera_drive_read();
++#endif
+   // TODO: Queue the next read here and swap the buffer.
+   // TODO: Error handling
+   if (!s_reader.WaitForReadToComplete())

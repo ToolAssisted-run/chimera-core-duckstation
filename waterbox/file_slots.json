@@ -1,11 +1,11 @@
 {
-  "_comment": "The core-declared file form for chimera's project wizard. A PlayStation project is a disc, or a program to run in place of one. The BIOS is not here: it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
+  "_comment": "The core-declared file form for chimera's project wizard. A PlayStation project is its discs, in the order the game asks for them - or a program to run in place of one - and, if it starts from somebody's progress, the memory cards. The BIOS is not here: it is firmware, which the frontend resolves once and remembers, rather than something a project carries.",
   "slots": [
     {
       "id": "disc",
-      "title": "Disc or program",
-      "min": 1,
-      "max": 1,
+      "title": "Discs or program",
+      "min": 0,
+      "max": 8,
       "formats": [
         "cue",
         "chd",
@@ -18,7 +18,17 @@
         "psexe",
         "ps-exe"
       ],
-      "help": "What the console runs. Usually a CD image: a .cue with the .bin files it names beside it, a .chd, a single .bin, .img or .iso of one data track, a PlayStation Store .pbp, or an .ecm. It can also be a PlayStation EXECUTABLE (.exe, .psexe, .ps-exe), which is what homebrew and test programs ship as: the tray stays empty and the console is handed the program once its own ROM has started."
+      "help": "What the console runs. Usually a CD image: a .cue with the .bin files it names beside it, a .chd, a single .bin, .img or .iso of one data track, a PlayStation Store .pbp, or an .ecm. A game of several discs lists them all, in order: the first is in the drive at power-on, and the Next Disc, Previous Disc and Disc Swap controls change it when the game asks. It can also be one PlayStation EXECUTABLE (.exe, .psexe, .ps-exe), which is what homebrew and test programs ship as: the tray stays empty and the console is handed the program once its own ROM has started. With nothing here the console boots to its own menu."
+    },
+    {
+      "id": "savedata",
+      "title": "Memory cards",
+      "min": 0,
+      "max": 2,
+      "formats": [
+        "mcd"
+      ],
+      "help": "Memory cards the console starts with, for a project that begins from somebody's saved game. A card is a raw 131072-byte image named for its slot: memcard1.mcd for slot 1, memcard2.mcd for slot 2 (a .mcr or .mc from another emulator is the same file under another name - rename it). Emulator > Export Save Data writes the cards back out under the same names. A card under any other name is refused, rather than ignored."
     }
   ]
 }
