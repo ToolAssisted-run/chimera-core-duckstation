@@ -33,8 +33,9 @@
 #   util/postprocessing*                          host-side filters
 #   util/cd_image_device                          a real drive
 #   util/platform_misc_*, common/crash_handler    the desktop
-#   util/{vulkan,d3d11,d3d12,metal}_*             no such thing in a sandbox
-#   util/opengl_*                                 built only with a guest Mesa
+#   util/{d3d11,d3d12,metal}_*                    no such thing in a sandbox
+#   util/opengl_*, util/vulkan_*                  built only with a guest Mesa
+#                                                 (the hardware renderer)
 #
 # TWO TREES. The console is extern/duckstation. The arcade boards built out of
 # a PlayStation are extern/arcadeduck, which began as the same commit and is
@@ -89,7 +90,25 @@ util_srcs() {
 		find "$p/src/util" -maxdepth 1 -name 'opengl_*.cpp' | grep -v \
 			-e "_egl.cpp$" -e "_wgl.cpp$" -e "_agl" -e "_glx" -e "_x11" -e "_wayland" \
 			| sort
+		# The Vulkan device, with the hardware renderer: it draws through
+		# Chimera's Vulkan bridge and nowhere else. The swap chain is
+		# compiled because the device names it, and never made: a core has
+		# no window, and the device is asked for one without a surface.
+		find "$p/src/util" -maxdepth 1 -name 'vulkan_*.cpp' | sort
 	fi
+}
+
+# glslang, which turns the GLSL DuckStation writes for Vulkan into SPIR-V.
+# Upstream reaches it through shaderc, loaded as a shared library at run time;
+# a sandbox loads nothing, so the compiler itself is compiled in - the front
+# end and the SPIR-V writer, without the optimiser (SPIRV-Tools) and without
+# HLSL. One copy for both emulators.
+glslang_srcs() {
+	g="extern/glslang"
+	find "$g/glslang/MachineIndependent" "$g/glslang/GenericCodeGen" -name '*.cpp' | sort
+	echo "$g/glslang/OSDependent/Unix/ossource.cpp"
+	echo "$g/glslang/ResourceLimits/ResourceLimits.cpp"
+	find "$g/SPIRV" -maxdepth 1 -name '*.cpp' | grep -v -e "/SpvTools.cpp$" | sort
 }
 
 core_srcs() {
@@ -152,5 +171,6 @@ case "${1:-}" in
 	util) util_srcs ;;
 	core) core_srcs ;;
 	deps) deps_srcs ;;
-	*) echo "usage: sources.sh [common|util|core|deps] [console|arcade]" >&2; exit 2 ;;
+	glslang) glslang_srcs ;;
+	*) echo "usage: sources.sh [common|util|core|deps|glslang] [console|arcade]" >&2; exit 2 ;;
 esac

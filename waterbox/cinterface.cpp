@@ -71,6 +71,17 @@ extern "C" {
 bool chimera_gl_objects_stale = false;
 }
 #endif
+#ifdef CHIMERA_GUEST_VK
+// miniBox source/vk/vk-bridge.h: the guest half of the Vulkan bridge. Said
+// here and not included, because that header brings the Vulkan headers of
+// miniBox with it and upstream compiles against its own.
+extern "C" {
+typedef uint64_t (*chimera_vk_bridge_fn)(uint64_t op, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e);
+bool chimera_vk_install(chimera_vk_bridge_fn bridge);
+uint64_t chimera_vk_context_id(void);
+void chimera_vk_forget_mappings(void);
+}
+#endif
 // waterbox/stubs/frontend.cpp: say on stderr what upstream would have drawn
 extern "C" int chimera_verbose;
 
@@ -152,6 +163,67 @@ bool g_renderEnabled = true;
 uint64_t g_glContext = 0;
 bool g_glStateLoaded = false;
 
+// Which of the two bridges the hardware renderer draws through. The Renderer
+// setting says ("vulkan-hw" is Vulkan, anything else that is not "software"
+// is OpenGL), and each bridge is there only if the host handed it over. What
+// is said above about OpenGL's names is true of Vulkan's handles, and more
+// so: a load there is always a new device.
+#ifdef CHIMERA_GUEST_VK
+bool g_vulkanBridge = false; // SetVulkanBridge was called, and the bridge took the callback
+chimera_vk_bridge_fn g_vulkanHost = nullptr;
+bool g_vulkanQuiet = false;
+
+// Every Vulkan command goes through here on its way to the host. While the
+// renderer lets go of a device that a load has already destroyed (the
+// rebuild, below), nothing crosses: each command answers "done" at once. The
+// objects are gone on the host's side whatever is said of them, and a wait
+// on one of their fences then ends instead of failing.
+uint64_t VulkanBridge(uint64_t op, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e)
+{
+  if (g_vulkanQuiet && op >= 100)
+    return 0;
+  return g_vulkanHost(op, a, b, c, d, e);
+}
+
+bool WantsVulkan()
+{
+  return g_rendererWanted == "vulkan-hw";
+}
+#else
+bool WantsVulkan()
+{
+  return false;
+}
+#endif
+
+// A real graphics card is drawing: the bridge the setting names was handed over.
+bool OnTheCard()
+{
+#ifdef CHIMERA_GUEST_VK
+  if (WantsVulkan())
+    return g_vulkanBridge;
+#endif
+  return chimera_gl_bridged();
+}
+
+// Which context (OpenGL) or device (Vulkan) the calls are landing on.
+uint64_t LiveContext()
+{
+#ifdef CHIMERA_GUEST_VK
+  if (WantsVulkan())
+    return g_vulkanBridge ? chimera_vk_context_id() : 0;
+#endif
+  return chimera_gl_context_id();
+}
+
+bool HardwareDevice()
+{
+  if (!g_gpu_device)
+    return false;
+  const RenderAPI api = g_gpu_device->GetRenderAPI();
+  return api == RenderAPI::OpenGL || api == RenderAPI::Vulkan;
+}
+
 // The console's VRAM as the card holds it, kept where a state can carry it.
 // The hardware renderer's VRAM is one texture, at the internal resolution
 // and in 24-bit colour; upstream's own copy of it (g_vram) is the console's
@@ -228,8 +300,16 @@ void RebuildForNewContext(uint64_t was, uint64_t now)
 
   g_download.reset();
   chimera_gl_objects_stale = true;
+#ifdef CHIMERA_GUEST_VK
+  // until the old device has been let go of (ChimeraOldDeviceGone, which
+  // upstream's recreate calls when it has), nothing of Vulkan crosses
+  g_vulkanQuiet = WantsVulkan();
+#endif
   const bool ok = System::ChimeraRecreateGPU();
   chimera_gl_objects_stale = false;
+#ifdef CHIMERA_GUEST_VK
+  g_vulkanQuiet = false;
+#endif
   if (!ok)
   {
     std::fprintf(stderr, "duckstation: the renderer could not be rebuilt on the new context\n");
@@ -242,12 +322,12 @@ void RebuildForNewContext(uint64_t was, uint64_t now)
 
 void CheckGLContext()
 {
-  if (!g_gpu_device || g_gpu_device->GetRenderAPI() != RenderAPI::OpenGL)
+  if (!HardwareDevice())
     return;
 
   const bool after_load = g_glStateLoaded;
   g_glStateLoaded = false;
-  const uint64_t live = chimera_gl_context_id();
+  const uint64_t live = LiveContext();
   if (live == 0 || live == g_glContext)
     return;
 
@@ -424,9 +504,17 @@ void ApplySettings(SettingsInterface& si)
     // "opengl" and "opengl-hw" are one renderer. The second asks for a real
     // graphics card; whether there is one is the host's to say (SetGpuBridge),
     // and without one the softpipe draws, as it does for the first.
-    si.SetStringValue("GPU", "Renderer",
-                      Settings::GetRendererName(strcmp(renderer, "software") == 0 ? GPURenderer::Software :
-                                                                                    GPURenderer::HardwareOpenGL));
+    // "vulkan-hw" is the same hardware renderer on DuckStation's Vulkan
+    // device. That one has no softpipe behind it: with no Vulkan handed over
+    // Init refuses, and says so.
+    GPURenderer which = GPURenderer::HardwareOpenGL;
+    if (strcmp(renderer, "software") == 0)
+      which = GPURenderer::Software;
+#ifdef CHIMERA_GUEST_VK
+    else if (strcmp(renderer, "vulkan-hw") == 0)
+      which = GPURenderer::HardwareVulkan;
+#endif
+    si.SetStringValue("GPU", "Renderer", Settings::GetRendererName(which));
 #else
     si.SetStringValue("GPU", "Renderer", Settings::GetRendererName(GPURenderer::Software));
 #endif
@@ -652,6 +740,13 @@ static int Init(void)
     return 0;
   }
 #endif
+  if (g_rendererWanted == "vulkan-hw" && !OnTheCard())
+  {
+    snprintf(g_loadError, sizeof(g_loadError),
+             "the renderer setting is vulkan-hw, and no Vulkan was handed over (this computer may have no Vulkan "
+             "driver, or this Chimera is older than its Vulkan bridge).");
+    return 0;
+  }
 
   // The frame, at the scale the project asked for. It is the picture the
   // frontend is shown and nothing the machine reads, but the weave keeps the
@@ -659,7 +754,7 @@ static int Init(void)
 #ifdef CHIMERA_GUEST_GL
   // Room for the card's VRAM, when a card is drawing (see FetchVRAMFromTheCard).
   // Taken here, during Init, and never later.
-  if (chimera_gl_bridged() && g_rendererWanted != "software")
+  if (OnTheCard() && g_rendererWanted != "software")
   {
     g_vramRoomWidth = 1024u * static_cast<u32>(g_scale);
 #ifdef CHIMERA_ARCADE
@@ -765,9 +860,9 @@ static void StateLoaded(void)
 static void StateSaving(void)
 {
 #ifdef CHIMERA_GUEST_GL
-  if (!g_booted || !chimera_gl_bridged() || !g_gpu_device || g_gpu_device->GetRenderAPI() != RenderAPI::OpenGL)
+  if (!g_booted || !OnTheCard() || !HardwareDevice())
     return;
-  const uint64_t live = chimera_gl_context_id();
+  const uint64_t live = LiveContext();
   if (live == 0 || live != g_glContext)
     return;
   g_gpu->RestoreDeviceContext();
@@ -788,6 +883,31 @@ static void SetGpuBridge(uint64_t addr)
 {
   if (!chimera_gl_bridge_start(reinterpret_cast<chimera_gl_bridge_fn>(addr)))
     std::fprintf(stderr, "duckstation: the GPU bridge was offered and refused\n");
+}
+#endif
+
+/* The same seam, for Vulkan: handed over before Init by a frontend whose
+ * computer has a Vulkan driver. The Renderer setting decides whether it is
+ * used ("vulkan-hw"). */
+#ifdef CHIMERA_GUEST_VK
+static void SetVulkanBridge(uint64_t addr)
+{
+  g_vulkanHost = reinterpret_cast<chimera_vk_bridge_fn>(addr);
+  g_vulkanBridge = g_vulkanHost && chimera_vk_install(VulkanBridge);
+  if (!g_vulkanBridge)
+    std::fprintf(stderr, "duckstation: the Vulkan bridge was offered and refused\n");
+}
+
+/* Upstream's "recreate the device" says so when the old device has been let
+ * go of (patches: "the Vulkan device is Chimera's"): the copies of mapped
+ * memory nothing will unmap now are given back, and the calls cross again
+ * for the device about to be made. */
+extern "C" void ChimeraOldDeviceGone(void)
+{
+  if (!g_vulkanQuiet)
+    return;
+  chimera_vk_forget_mappings();
+  g_vulkanQuiet = false;
 }
 #endif
 
@@ -909,6 +1029,11 @@ extern const ChimeraMachine chimera_machine_console = {
   StateSaving,
 #ifdef CHIMERA_GUEST_GL
   SetGpuBridge,
+#else
+  nullptr,
+#endif
+#ifdef CHIMERA_GUEST_VK
+  SetVulkanBridge,
 #else
   nullptr,
 #endif

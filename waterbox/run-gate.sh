@@ -225,7 +225,7 @@ arcade_tier() {
 	[ -n "$ns11" ] || { [ -f "$adir/sets/tekkenac.zip" ] && ns11="$adir/sets/tekkenac.zip"; }
 	[ -n "$ns11bios" ] || { [ -f "$adir/namcoc76.zip" ] && ns11bios="$adir/namcoc76.zip"; }
 	if [ -z "$ns11" ] || [ -z "$ns11bios" ]; then
-		for leg in ns11:compare ns11:rerecord ns11:rewind ns11:memory ns11:refused ns11:crop panel:wheel ns11:engine ns11:gl ns11:gpu; do
+		for leg in ns11:compare ns11:rerecord ns11:rewind ns11:memory ns11:refused ns11:crop panel:wheel ns11:engine ns11:gl ns11:gpu ns11:vulkan; do
 			report "$leg" SKIP "needs tests/roms/arcade/sets/tekkenac.zip (CHIMERA_ARCADE_NS11_SET) and tests/roms/arcade/namcoc76.zip (CHIMERA_ARCADE_NS11_BIOS)"
 		done
 	else
@@ -410,6 +410,7 @@ arcade_tier() {
 		# does not. Frames 1400..1460 are the attract mode's fight, at 2x.
 		if [ ! -x "$brg/run-wbx" ]; then
 			report "ns11:gpu" SKIP "needs a runner with the bridge's host half: meson setup build/meson-gl -Dminibox_dir=<miniBox> -Dgl_bridge=true"
+			report "ns11:vulkan" SKIP "needs a runner with the bridge's host half, as ns11:gpu does"
 		else
 			mkns11 "$work/tkhw" '{"machine":"namco_system11","renderer":"opengl-hw","internalResolution":"2x","verbose":true}'
 			local hw_log hw_gl
@@ -430,6 +431,31 @@ arcade_tier() {
 					report "ns11:gpu" PASS "drawn outside the sandbox ($hw_gl) at 2x, kept at 1400 and restored at 1460: every frame after the load is the straight run's; left untold, the picture is not and the machine still is"
 				else
 					report "ns11:gpu" FAIL "renderer [$hw_gl]; told and straight $([ "$told_ok" = yes ] && echo agree || echo DIFFER); untold picture $([ "$untold_differs" = yes ] && echo differs || echo "is the SAME - the control shows nothing"); untold machine $([ "$untold_machine" = yes ] && echo same || echo DIFFERS)"
+				fi
+			fi
+
+			# The same board on the Vulkan device, the same rewind and the same
+			# control. The arcade tree is its own copy of the renderer, so it
+			# is its own proof.
+			mkns11 "$work/tkvk" '{"machine":"namco_system11","renderer":"vulkan-hw","internalResolution":"2x"}'
+			local vk_first
+			vk_first="$(wbxgpu "$work/tkvk" --frames 60 2>&1 | plain)"
+			if grep -q 'no Vulkan was handed over' <<< "$vk_first"; then
+				report "ns11:vulkan" SKIP "this computer handed the core no Vulkan"
+			else
+				wbxgpu "$work/tkvk" --frames 1480 2>/dev/null | digests > "$work/tkvk.s"
+				wbxgpu "$work/tkvk" --frames 1480 --rewind 1400:1460 2>"$work/tkvk.err" | digests > "$work/tkvk.t"
+				GPU_ENV=CHIMERA_NO_STATE_SAVING=1 wbxgpu "$work/tkvk" --frames 1480 --rewind 1400:1460 2>/dev/null | digests > "$work/tkvk.u"
+				local vk_told=no vk_untold_differs=no vk_untold_machine=no vk_machine=no
+				cmp -s "$work/tkvk.s" "$work/tkvk.t" && [ -s "$work/tkvk.s" ] && vk_told=yes
+				cmp -s "$work/tkvk.s" "$work/tkvk.u" || vk_untold_differs=yes
+				cmp -s <(machine_only < "$work/tkvk.s") <(machine_only < "$work/tkvk.u") && vk_untold_machine=yes
+				# and the machine is the one OpenGL ran, when that run is here
+				[ ! -s "$work/tkhw.s" ] || cmp -s <(machine_only < "$work/tkhw.s") <(machine_only < "$work/tkvk.s") && vk_machine=yes
+				if [ "$vk_told" = yes ] && [ "$vk_untold_differs" = yes ] && [ "$vk_untold_machine" = yes ] && [ "$vk_machine" = yes ] && ! grep -q 'calls were refused' "$work/tkvk.err"; then
+					report "ns11:vulkan" PASS "the board drawn with Vulkan at 2x, kept at 1400 and restored at 1460: every frame after the load is the straight run's and the machine is the one OpenGL ran; left untold, the picture is not and the machine still is"
+				else
+					report "ns11:vulkan" FAIL "told and straight $([ "$vk_told" = yes ] && echo agree || echo DIFFER); untold picture $([ "$vk_untold_differs" = yes ] && echo differs || echo "is the SAME - the control shows nothing"); untold machine $([ "$vk_untold_machine" = yes ] && echo same || echo DIFFERS); machine against OpenGL's $([ "$vk_machine" = yes ] && echo same || echo DIFFERS) $(grep -m1 'calls were refused' "$work/tkvk.err")"
 				fi
 			fi
 		fi
@@ -764,6 +790,91 @@ else
 			report "gpu:rerecord" PASS "300 frames with a state saved and loaded around every one - a new context each time - and the straight run, picture included"
 		else
 			report "gpu:rerecord" FAIL "$(diff "$work/hw.300" "$work/hw.rr" | head -4 | tr '\n' ' ')"
+		fi
+	fi
+fi
+
+# ---- the hardware renderer on Vulkan --------------------------------------------
+#
+# The Renderer setting's "vulkan-hw": the same hardware renderer on
+# DuckStation's Vulkan device, through miniBox's Vulkan bridge. The runner
+# hands both bridges over, as the frontend does, and the core uses the one
+# the setting names. It needs a Vulkan driver on this computer - one that
+# draws on the processor will do (Mesa's lavapipe) - and says SKIP without.
+vk_legs="vk:bridge vk:machine vk:picture vk:picture-after-load vk:rerecord"
+if [ ! -x "$brg/run-wbx" ]; then
+	for leg in $vk_legs; do
+		report "$leg" SKIP "needs a runner with the bridge's host half: meson setup build/meson-gl -Dminibox_dir=<miniBox> -Dgl_bridge=true"
+	done
+else
+	mkwork "$work/vk" "$bios" '{"renderer":"vulkan-hw","verbose":true}'
+	vk_log="$(wbxgpu "$work/vk" --frames 300 2>&1 | plain)"
+	# (not anchored to the start of a line: the runner's two streams share
+	# the pipe, and this line can land in the middle of one of the core's)
+	vk_card="$(grep -o 'vulkan bridge: .*(Vulkan [^)]*)' <<< "$vk_log" | head -1 | cut -c16-)"
+	if grep -q 'no Vulkan was handed over' <<< "$vk_log"; then
+		for leg in $vk_legs; do
+			report "$leg" SKIP "this computer handed the core no Vulkan: $(grep -m1 '^vulkan bridge:' <<< "$vk_log" | cut -c1-120)"
+		done
+	elif grep -q 'has no OpenGL in it' <<< "$vk_log"; then
+		for leg in $vk_legs; do
+			report "$leg" SKIP "this core.wbx was built without a guest Mesa, and so without the hardware renderer"
+		done
+	else
+		refused="$(grep -c 'calls were refused' <<< "$vk_log")"
+		if [ -n "$vk_card" ] && [ "$refused" -eq 0 ] && grep -q 'Trying to create a Vulkan GPU device' <<< "$vk_log" && grep -q 'GPU_HW: Created HW framebuffer' <<< "$vk_log"; then
+			report "vk:bridge" PASS "the renderer came up on a Vulkan device ($vk_card) and no command it sent was refused"
+		else
+			report "vk:bridge" FAIL "card [${vk_card:-none}], runs with refused commands: $refused, $(grep -m1 -i 'vulkan' <<< "$vk_log" | cut -c1-100)"
+		fi
+
+		mkwork "$work/vk1" "$bios" '{"renderer":"vulkan-hw"}'
+		wbxgpu "$work/vk1" --frames 500 2>/dev/null > "$work/vk.500"
+		[ -s "$work/sw.500" ] || wbx "$work/shell" --frames 500 2>/dev/null > "$work/sw.500"
+		if grep -q '^machineHash=' "$work/vk.500" && cmp -s <(machine_only < "$work/sw.500") <(machine_only < "$work/vk.500"); then
+			report "vk:machine" PASS "500 frames drawn with Vulkan: the processor, the sound and the polls are the software renderer's"
+		else
+			report "vk:machine" FAIL "$(diff <(machine_only < "$work/sw.500") <(machine_only < "$work/vk.500") | head -4 | tr '\n' ' ')"
+		fi
+
+		# The picture itself, against OpenGL's on the same computer: the same
+		# but for pixels the two do not round alike. Frame 300 is the diamond
+		# of the console's start-up, all gradient; frame 1140 is its menu, and
+		# is told apart from it.
+		mkwork "$work/glp" "$bios" '{"renderer":"opengl-hw"}'
+		wbxgpu "$work/glp" --frames 300 --screenshot "$work/gl.300.tga" >/dev/null 2>&1
+		wbxgpu "$work/vk1" --frames 300 --screenshot "$work/vk.300.tga" >/dev/null 2>&1
+		wbxgpu "$work/vk1" --frames 1140 --screenshot "$work/vk.1140.tga" >/dev/null 2>&1
+		same="$(python3 "$here/tests/check-same-picture.py" "$work/gl.300.tga" "$work/vk.300.tga" 2>&1)"; same_rc=$?
+		other="$(python3 "$here/tests/check-same-picture.py" "$work/gl.300.tga" "$work/vk.1140.tga" 2>&1)"; other_rc=$?
+		if [ "$same_rc" = 0 ] && [ "$other_rc" = 1 ]; then
+			report "vk:picture" PASS "Vulkan draws what OpenGL draws at frame 300: ${same%% (*}; another frame is told apart (${other%% (*})"
+		else
+			report "vk:picture" FAIL "against OpenGL at frame 300: $(head -1 <<< "$same"); another frame, which must differ: $(head -1 <<< "$other")"
+		fi
+
+		# VRAM is on the card, as with OpenGL: fetched before a state, given
+		# back after a load. The same rewind, and the same control.
+		mkwork "$work/vk3" "$bios" '{"renderer":"vulkan-hw","internalResolution":"3x"}'
+		wbxgpu "$work/vk3" --frames 1140 2>/dev/null | digests > "$work/vk3.s"
+		wbxgpu "$work/vk3" --frames 1140 --rewind 1100:1130 2>/dev/null | digests > "$work/vk3.t"
+		GPU_ENV=CHIMERA_NO_STATE_SAVING=1 wbxgpu "$work/vk3" --frames 1140 --rewind 1100:1130 2>/dev/null | digests > "$work/vk3.u"
+		told_ok=no; cmp -s "$work/vk3.s" "$work/vk3.t" && [ -s "$work/vk3.s" ] && told_ok=yes
+		untold_differs=no; cmp -s "$work/vk3.s" "$work/vk3.u" || untold_differs=yes
+		untold_machine=no; cmp -s <(machine_only < "$work/vk3.s") <(machine_only < "$work/vk3.u") && untold_machine=yes
+		if [ "$told_ok" = yes ] && [ "$untold_differs" = yes ] && [ "$untold_machine" = yes ]; then
+			report "vk:picture-after-load" PASS "at 3x, kept at 1100 and restored at 1130: every frame after the load is the straight run's; left untold, the picture is not and the machine still is"
+		else
+			report "vk:picture-after-load" FAIL "told and straight $([ "$told_ok" = yes ] && echo agree || echo DIFFER); untold picture $([ "$untold_differs" = yes ] && echo differs || echo "is the SAME - the control sees nothing"); untold machine $([ "$untold_machine" = yes ] && echo same || echo DIFFERS)"
+		fi
+
+		# a load before every frame: a new Vulkan device 300 times
+		wbxgpu "$work/vk1" --frames 300 2>/dev/null | digests > "$work/vk.300"
+		wbxgpu "$work/vk1" --frames 300 --rerecord 2>"$work/vk.rr.err" | digests > "$work/vk.rr"
+		if [ -s "$work/vk.300" ] && cmp -s "$work/vk.300" "$work/vk.rr" && ! grep -q 'calls were refused' "$work/vk.rr.err"; then
+			report "vk:rerecord" PASS "300 frames with a state saved and loaded around every one - a new Vulkan device each time - and the straight run, picture included; no command refused"
+		else
+			report "vk:rerecord" FAIL "$(diff "$work/vk.300" "$work/vk.rr" | head -4 | tr '\n' ' ') $(grep -m1 'calls were refused' "$work/vk.rr.err")"
 		fi
 	fi
 fi

@@ -86,6 +86,45 @@ static void gl_state_loaded(void) { }
 static void gl_report_unhandled(void) { }
 #endif
 
+/* The Vulkan bridge's host half (miniBox source/vk/vk-host.c), handed over
+ * beside the OpenGL one when CHIMERA_GPU asks for a card: the core uses the
+ * one its renderer setting names, as it does in the frontend. A computer
+ * with no Vulkan loses the vulkan-hw renderer and nothing else. */
+#ifdef CHIMERA_VK_BRIDGE
+int chimera_vk_host_init(char *err, int errlen);
+uintptr_t chimera_vk_host_dispatch(uintptr_t op, uintptr_t a, uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
+void chimera_vk_host_state_loaded(void);
+void chimera_vk_host_shutdown(void);
+const char *chimera_vk_host_description(void);
+unsigned long chimera_vk_host_refused(long *last_op);
+static int g_vulkan;
+
+static void vk_state_loaded(void)
+{
+	if (g_vulkan)
+		chimera_vk_host_state_loaded();
+}
+
+/* A refused command is one sent with an object the host does not know - of a
+ * device a load destroyed, as a rule. The gate fails on it. */
+static void vk_report_refused(void)
+{
+	long last = 0;
+	if (!g_vulkan) return;
+	const char *card = chimera_vk_host_description();
+	if (card && card[0])
+		fprintf(stderr, "vulkan bridge: %s\n", card);
+	const unsigned long n = chimera_vk_host_refused(&last);
+	if (n)
+		fprintf(stderr, "vulkan bridge: %lu calls were refused (last opcode %ld)\n", n, last);
+	chimera_vk_host_shutdown();
+	fflush(stderr);
+}
+#else
+static void vk_state_loaded(void) { }
+static void vk_report_refused(void) { }
+#endif
+
 static intfn g_Init;
 static ptrfn g_GetLoadError;
 static setfn g_SetButton;
@@ -186,6 +225,7 @@ static void put_state(membuf *from)
 	wbx_load_state(g_host, mem_read, (uintptr_t)from, &r);
 	if (r.error_message[0]) { fprintf(stderr, "load_state: %s\n", r.error_message); exit(1); }
 	gl_state_loaded();
+	vk_state_loaded();
 	if (g_StateLoaded) g_StateLoaded();
 }
 
@@ -320,6 +360,37 @@ int main(int argc, char **argv)
 		}
 	}
 #endif
+#ifdef CHIMERA_VK_BRIDGE
+	{
+		const char *want = getenv("CHIMERA_GPU");
+		if (want && strcmp(want, "0") != 0)
+		{
+			char vkerr[256] = "";
+			setfn_v set_vulkan = (setfn_v)proc_optional(g_host, "SetVulkanBridge");
+			if (!set_vulkan)
+			{
+				/* a core built without the Vulkan device */
+			}
+			else if (chimera_vk_host_init(vkerr, sizeof vkerr) != 0)
+			{
+				fprintf(stderr, "vulkan bridge: %s\n", vkerr);
+			}
+			else
+			{
+				wbx_get_callback_addr(g_host, (mb_external_callback)chimera_vk_host_dispatch, 2, &r);
+				if (!r.data)
+				{
+					fprintf(stderr, "vulkan bridge: could not register the callback\n");
+				}
+				else
+				{
+					set_vulkan((uint64_t)r.data);
+					g_vulkan = 1;
+				}
+			}
+		}
+	}
+#endif
 
 	struct gate_core c = {
 		.init = core_init,
@@ -362,6 +433,7 @@ int main(int argc, char **argv)
 	c.init = core_init_done;
 	int ret = gate_run(&c, &o);
 	gl_report_unhandled();
+	vk_report_refused();
 
 	wbx_deactivate_host(g_host, &r);
 	wbx_destroy_host(g_host, &r);

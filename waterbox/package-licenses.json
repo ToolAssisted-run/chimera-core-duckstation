@@ -135,6 +135,21 @@
       "url": "https://github.com/facebook/zstd",
       "commit": "{submodule:extern/zstd}",
       "file": "extern/zstd/LICENSE"
+    },
+    {
+      "name": "glslang",
+      "license": "BSD-3-Clause, BSD-2-Clause, MIT and Apache-2.0, with its generated parser under GPL-3.0 with the Bison exception",
+      "url": "https://github.com/KhronosGroup/glslang",
+      "commit": "{submodule:extern/glslang}",
+      "file": "extern/glslang/LICENSE.txt",
+      "note": "The compiler that turns the GLSL DuckStation writes for its Vulkan device into SPIR-V. Its front end and SPIR-V writer are compiled in, without the optimiser and without HLSL. Used only when the Renderer setting is vulkan-hw."
+    },
+    {
+      "name": "Vulkan Memory Allocator",
+      "license": "MIT",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator",
+      "file": "extern/duckstation/dep/vulkan/include/vulkan/vk_mem_alloc.h",
+      "note": "One header, carried in DuckStation's tree beside the Khronos Vulkan headers (Apache-2.0) it is compiled against. Its licence is the comment at its top."
     }
   ]
 }

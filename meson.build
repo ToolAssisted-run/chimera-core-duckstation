@@ -86,6 +86,11 @@ guest_gl = mesa != ''
 if guest_gl
   sources_env.set('CHIMERA_GUEST_MESA', mesa)
   defs += ['-DENABLE_OPENGL=1', '-DCHIMERA_GUEST_GL']
+  # The Vulkan device comes with the hardware renderer too. It has no
+  # software fallback of its own: it draws through Chimera's Vulkan bridge on
+  # the computer's graphics card, or it is not used (the Renderer setting's
+  # "vulkan-hw").
+  defs += ['-DENABLE_VULKAN=1', '-DCHIMERA_GUEST_VK']
 endif
 
 if meson.is_cross_build()
@@ -119,6 +124,8 @@ inc = include_directories(
   ds / 'dep/xbyak/xbyak',
   ds / 'dep/glad/include',
   ds / 'dep/ffmpeg/include',
+  # the Vulkan headers and the allocator upstream builds against
+  ds / 'dep/vulkan/include',
   'extern/zlib',
   'extern/zstd/lib',
   'waterbox',
@@ -126,6 +133,10 @@ inc = include_directories(
   # resources.S assembles upstream's data files in by name
   ds / 'data/resources',
 )
+# glslang, for the one function that asks it to compile a shader
+# (util/gpu_device.cpp). Its own headers and the build_info.h its CMake would
+# have generated.
+inc_glslang = include_directories('extern/glslang', 'waterbox/glslang-include')
 
 add_project_arguments(['-I' + mb / 'source/gl', '-I' + meson.current_source_dir() / 'waterbox'], language: ['c', 'cpp'])
 
@@ -144,7 +155,7 @@ pch_util = ['-include', 'util/pch.h']
 pch_core = ['-include', 'core/pch.h']
 native_inc = meson.is_cross_build() ? [] : [include_directories('waterbox/native-shim')]
 ds_common = static_library('duckstation-common', common_sources, include_directories: inc)
-ds_util = static_library('duckstation-util', util_sources, include_directories: inc, cpp_args: pch_util)
+ds_util = static_library('duckstation-util', util_sources, include_directories: [inc, inc_glslang], cpp_args: pch_util)
 ds_core = static_library('duckstation-core', core_sources, include_directories: inc, cpp_args: pch_core)
 ds_libs = [ds_core, ds_util, ds_common]
 
@@ -173,6 +184,7 @@ if arcade
     ad / 'dep/xbyak/xbyak',
     ad / 'dep/glad/include',
     ad / 'dep/ffmpeg/include',
+    ad / 'dep/vulkan/include',
     ad / 'dep/minizip/include',
     'extern/zlib',
     'extern/zstd/lib',
@@ -189,7 +201,7 @@ if arcade
     c_args: ad_args, cpp_args: ad_args)
   ad_common = static_library('arcadeduck-common', ad_common_sources, include_directories: inc_ad,
     c_args: ad_args, cpp_args: ad_args)
-  ad_util = static_library('arcadeduck-util', ad_util_sources, include_directories: inc_ad,
+  ad_util = static_library('arcadeduck-util', ad_util_sources, include_directories: [inc_ad, inc_glslang],
     c_args: ad_args, cpp_args: ad_args + pch_util)
   ad_core = static_library('arcadeduck-core', ad_core_sources, include_directories: inc_ad,
     c_args: ad_args, cpp_args: ad_args + pch_core)
@@ -232,6 +244,33 @@ if guest_gl
       mb / 'source/gl/gl-entry-points.txt',
       '@OUTDIR@', '--only', '@INPUT@'])
   machine_sources += [files('waterbox/gl-osmesa.cpp', 'waterbox/gl-bridged.cpp'), gl_bridge_guest[0]]
+endif
+
+# ---- Vulkan: what both machines share -------------------------------------------
+#
+# glslang and the guest half of miniBox's Vulkan bridge are compiled once and
+# linked into the binary beside the two machines, which call them by name.
+# The bridge's guest half is the real vk* functions: a wrapper per command
+# that hands the call to the host, generated from the SHARED list in miniBox,
+# so an opcode means here what it means to the frontend's host half.
+shared_libs = []
+if guest_gl
+  glslang_sources = files(run_command(sources_sh, 'glslang', env: sources_env, check: true).stdout().strip().split('\n'))
+  # "-Dthread_local=": glslang keeps its allocator per thread. The guest has
+  # one thread and keeps no thread-local storage at all (its whole state has
+  # to be where a savestate finds it), so the two variables are ordinary ones.
+  shared_libs += static_library('glslang', glslang_sources,
+    include_directories: inc_glslang,
+    cpp_args: ['-DENABLE_OPT=0', '-Dthread_local=', '-w'])
+  vk_bridge = custom_target('vk-bridge',
+    output: ['vk-bridge-guest.c', 'vk-bridge-ops.h', 'vk-bridge-host.inc'],
+    command: [find_program('python3'), mb / 'source/vk/gen-vk-bridge.py',
+      mb / 'extern/vulkan-headers/registry/vk.xml',
+      mb / 'source/vk/vk-entry-points.txt', '@OUTDIR@'])
+  vk_bridge_args = ['-I' + mb / 'source/vk', '-I' + mb / 'extern/vulkan-headers/include',
+    '-I' + meson.current_build_dir()]
+  shared_libs += static_library('vk-bridge-guest', [files(mb / 'source/vk/vk-guest.c'), vk_bridge[0], vk_bridge[1]],
+    c_args: vk_bridge_args)
 endif
 
 # ---- one binary, two machines -------------------------------------------------
@@ -291,6 +330,7 @@ if meson.is_cross_build()
 
   executable('core', dispatch_sources, machines,
     name_suffix: 'wbx',
+    link_with: shared_libs,
     c_args: dispatch_args,
     link_args: mesa_link + [
       '-static', '-no-pie',
@@ -340,6 +380,20 @@ else
     # the generated ops header lands in the build dir
     bridge_args += ['-I' + meson.current_build_dir()]
     bridge_deps = [meson.get_compiler('c').find_library('EGL', required: true)]
+
+    # The Vulkan bridge's host half, the same way: miniBox's one file, with
+    # its dispatch generated from the shared list. It links against nothing -
+    # the computer's Vulkan loader is looked for when a core asks - so a
+    # machine without Vulkan loses the Vulkan renderer's checks and nothing
+    # else.
+    vk_bridge_host = custom_target('vk-bridge-host',
+      output: ['vk-bridge-host.inc', 'vk-bridge-ops.h', 'vk-bridge-guest.c'],
+      command: [find_program('python3'), mb / 'source/vk/gen-vk-bridge.py',
+        mb / 'extern/vulkan-headers/registry/vk.xml',
+        mb / 'source/vk/vk-entry-points.txt', '@OUTDIR@'])
+    bridge_sources += [files(mb / 'source/vk/vk-host.c'), vk_bridge_host[0], vk_bridge_host[1]]
+    bridge_args += ['-DCHIMERA_VK_BRIDGE', '-I' + mb / 'source/vk', '-I' + mb / 'extern/vulkan-headers/include']
+    bridge_deps += [dl]
   endif
 
   # The sandbox runner is not part of the machine: it drives core.wbx from

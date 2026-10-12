@@ -1139,6 +1139,92 @@ this machine had it built that morning; the frontend gate, the contract
 tests and a second pass of `ports:columns` by hand ran on it rebuilt at
 chimera 7a335a3.
 
+## The hardware renderer on Vulkan (user-decided, 2026-10-11, chimera#248)
+
+The owner decided that every core whose emulator has a Vulkan renderer
+offers it. Here that is a fourth value of the Renderer setting, `vulkan-hw`:
+the same hardware renderer as `opengl` and `opengl-hw`, on DuckStation's
+Vulkan device, drawing on the computer's graphics card through Chimera's
+Vulkan bridge. The default did not change. It has nothing to fall back on: on
+a computer that hands no Vulkan over, Init refuses and says why.
+
+What it took (patches/0013 and patches-arcade/0014, the same seven files in
+each tree, and the adapter):
+
+- **The functions.** Upstream opens the Vulkan library and asks it for each
+  function. The bridge's guest half is linked into the core instead, and
+  `vulkan_loader.cpp` asks it by name. All 137 functions upstream requires
+  are on the bridge's list.
+- **The shader compiler.** The Vulkan device is given GLSL and needs SPIR-V.
+  Upstream asks shaderc, a shared library loaded at run time; a sandbox loads
+  nothing, so glslang - the compiler shaderc wraps - is a submodule
+  (`extern/glslang`, 14.3.0), compiled in without its optimiser and without
+  HLSL, and asked directly. What it compiles is kept by source, because the
+  device is made again after every load and asks for the same shaders.
+- **Only commands the bridge carries.** The device never uses dynamic
+  rendering, push descriptors, the fragment shader interlock or imported
+  host memory, whatever the driver offers. The first two are extensions
+  whose commands are not on the bridge's list (upstream called one through a
+  null pointer at the console's logo), and the last cannot cross a sandbox.
+  Never using them also means the renderer takes the same path on every
+  computer.
+- **No window.** Nothing to do: upstream's device takes a surfaceless window,
+  which is what the core already hands it, and the picture is downloaded
+  with upstream's download texture as it is for OpenGL.
+- **Memory.** Upstream flushes and invalidates its mappings itself. Two
+  things differ through the bridge, where every mapped byte is a byte of the
+  core's memory that is copied when the mapping is made. The stream buffers
+  and upload buffers ask for cached memory, not write-combined. And less is
+  mapped: the stream buffers have the OpenGL device's sizes (30 MiB in all
+  against 120 - a buffer that fills submits and waits, so smaller is safe),
+  and the allocator's blocks are 16 MiB against 256.
+- **A load.** A load is a new Vulkan device. The adapter's check
+  (`CheckGLContext`, now for either bridge) runs upstream's "recreate the
+  GPU", as it does for OpenGL. While upstream lets go of the old device none
+  of its commands cross the bridge (the adapter's `VulkanBridge` answers
+  "done"), and `System::RecreateGPU` says when the old device is gone
+  (`ChimeraOldDeviceGone`). VRAM is fetched before a state and given back
+  after a load by the same two functions; the fetch downloads and copies
+  where the device cannot write straight into the core's memory.
+
+The adapter's conditions that said "OpenGL" now say "a card", whichever
+bridge it is on (`OnTheCard`, `LiveContext`, `HardwareDevice`).
+
+Measured on Mesa's lavapipe, the console's menu (2026-10-12):
+
+- 500 frames: the processor, the sound and the polls are the software
+  renderer's. The picture at frame 300 is OpenGL's but for 34 of
+  286,720 pixels that differ by more than 8 levels of 255.
+- A state saved and loaded around each of 300 frames is the straight run,
+  picture included, with no command refused.
+- At 3x, kept at frame 1100 and restored at 1130: every frame after the load
+  is the straight run's. With the core left untold before the state, the
+  picture differs and the machine does not.
+- The arcade tree, Tekken on System 11 at 2x: the machine is the one OpenGL
+  ran, 301 of 466,944 pixels differ by more than 8 levels, and the rewind
+  from 1400 to 1460 is the straight run, with the same control.
+
+Measured on a GeForce GTX 1060 (Windows, driver 581.42, Vulkan 1.4.312)
+through chimera-run.exe, at 3x:
+
+- The menu, 1200 frames: 7.0 s with Vulkan, 6.96 s with OpenGL; no pixel of
+  frames 300 and 1150 differs by more than 8 levels.
+- Need for Speed: Porsche Unleashed, 3000 frames from power-on: 8.9 s with
+  Vulkan, 12.0 s with OpenGL.
+- A state loaded before each of 300 frames: frame 290 is the straight run's,
+  byte for byte. A state saved at frame 1100 and loaded in a new process
+  shows the straight run's picture.
+- A load costs 0.23 s with Vulkan against 0.07 s with OpenGL. It was 0.45 s
+  before the three changes under "Memory" and the kept shaders. Of what is
+  left, 59 ms is the bridge copying freshly mapped memory and 27 ms the
+  driver making a device - the bridge's to improve.
+
+What it does not cover: no game was played with Vulkan beyond its first
+minute, and Chimera's window was not used, only chimera-run. The two
+renderers differ in a few pixels, so a movie's pictures match with the
+renderer it was made with; the machine is the same with either unless a game
+reads its own picture back.
+
 ## Sharp edges
 
 - **Write protection on code pages.** `Bus::SetRAMCodePage` protects a RAM

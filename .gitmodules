@@ -10,3 +10,6 @@
 [submodule "extern/arcadeduck"]
 	path = extern/arcadeduck
 	url = https://github.com/StillJC/ArcadeDuck.git
+[submodule "extern/glslang"]
+	path = extern/glslang
+	url = https://github.com/KhronosGroup/glslang.git

@@ -1,0 +1,351 @@
+diff --git a/src/core/gpu_hw.cpp b/src/core/gpu_hw.cpp
+--- a/src/core/gpu_hw.cpp
++++ b/src/core/gpu_hw.cpp
+@@ -322,16 +322,23 @@
+ 
+   const u32 width = m_vram_texture->GetWidth();
+   const u32 height = m_vram_texture->GetHeight();
++  // Straight into the caller's memory where the device can (OpenGL reads
++  // pixels to any address). The Vulkan device could only by importing that
++  // memory, which nothing does through Chimera's bridge: there the texture
++  // is downloaded the ordinary way and its rows copied out.
++  const bool into_memory = g_gpu_device->GetFeatures().memory_import;
+   std::unique_ptr<GPUDownloadTexture> dl =
+-    g_gpu_device->CreateDownloadTexture(width, height, m_vram_texture->GetFormat(), rgba,
+-                                        static_cast<size_t>(pitch) * height, pitch);
++    into_memory ? g_gpu_device->CreateDownloadTexture(width, height, m_vram_texture->GetFormat(), rgba,
++                                                      static_cast<size_t>(pitch) * height, pitch) :
++                  g_gpu_device->CreateDownloadTexture(width, height, m_vram_texture->GetFormat());
+   if (!dl)
+     return false;
+ 
+   dl->CopyFromTexture(0, 0, m_vram_texture.get(), 0, 0, width, height, 0, 0, false);
+   dl->Flush();
++  const bool ok = into_memory || dl->ReadTexels(0, 0, width, height, rgba, pitch);
+   RestoreDeviceContext();
+-  return true;
++  return ok;
+ }
+ 
+ void GPU_HW::ChimeraUploadVRAMTexture(const void* rgba, u32 pitch)
+diff --git a/src/core/system.cpp b/src/core/system.cpp
+--- a/src/core/system.cpp
++++ b/src/core/system.cpp
+@@ -1158,6 +1158,10 @@
+   return Path::Combine(EmuFolders::InputProfiles, fmt::format("{}.ini", name));
+ }
+ 
++#ifdef CHIMERA_GUEST_VK
++extern "C" void ChimeraOldDeviceGone(void);
++#endif
++
+ #ifdef CHIMERA_WATERBOX
+ bool System::ChimeraRecreateGPU()
+ {
+@@ -1187,6 +1191,12 @@
+   {
+     PostProcessing::Shutdown();
+     Host::ReleaseGPUDevice();
++#ifdef CHIMERA_GUEST_VK
++    // chimera: the old device has been let go of. After a load it was a
++    // Vulkan device that no longer existed, and until this moment none of
++    // its commands went anywhere (chimera-core-duckstation, cinterface.cpp).
++    ChimeraOldDeviceGone();
++#endif
+   }
+ 
+   Error error;
+diff --git a/src/util/gpu_device.cpp b/src/util/gpu_device.cpp
+--- a/src/util/gpu_device.cpp
++++ b/src/util/gpu_device.cpp
+@@ -1757,6 +1757,110 @@
+ 
+ #else // CHIMERA_NO_SHADER_TRANSPILER
+ 
++#ifdef CHIMERA_GUEST_VK
++// chimera: the Vulkan device needs its GLSL made into SPIR-V. Upstream asks
++// shaderc, a shared library it loads at run time; a sandbox loads nothing,
++// so glslang - the compiler shaderc is a wrapper of - is compiled into the
++// core and asked directly. Without shaderc's optimiser: the shaders are a
++// few dozen lines each and the driver compiles them again anyway.
++#include "SPIRV/GlslangToSpv.h"
++#include "glslang/Public/ResourceLimits.h"
++#include "glslang/Public/ShaderLang.h"
++
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++bool GPUDevice::CompileGLSLShaderToVulkanSpv(GPUShaderStage stage, GPUShaderLanguage source_language,
++                                             std::string_view source, const char* entry_point, bool optimization,
++                                             bool nonsemantic_debug_info, DynamicHeapArray<u8>* out_binary,
++                                             Error* error)
++{
++  static constexpr const std::array<EShLanguage, static_cast<size_t>(GPUShaderStage::MaxCount)> stage_kinds = {{
++    EShLangVertex,
++    EShLangFragment,
++    EShLangGeometry,
++    EShLangCompute,
++  }};
++
++  if (source_language != GPUShaderLanguage::GLSLVK)
++  {
++    Error::SetStringFmt(error, "Unsupported source language for transpile: {}",
++                        ShaderLanguageToString(source_language));
++    return false;
++  }
++
++  // What was compiled once is kept, by stage and source. After every
++  // savestate that is loaded the device is made again and asks for the same
++  // few dozen shaders; compiling them again was most of what a load cost.
++  // The table is the core's own memory, so a state carries it.
++  static std::unordered_map<std::string, std::vector<unsigned int>> s_compiled;
++  std::string key;
++  key.reserve(source.length() + 1);
++  key.push_back(static_cast<char>('0' + static_cast<int>(stage)));
++  key.append(source);
++  if (const auto it = s_compiled.find(key); it != s_compiled.end())
++  {
++    out_binary->resize(it->second.size() * sizeof(unsigned int));
++    std::memcpy(out_binary->data(), it->second.data(), out_binary->size());
++    return true;
++  }
++
++  static bool s_glslang_started = false;
++  if (!s_glslang_started)
++  {
++    glslang::InitializeProcess();
++    s_glslang_started = true;
++  }
++
++  const EShLanguage kind = stage_kinds[static_cast<size_t>(stage)];
++  const char* const text = source.data();
++  const int length = static_cast<int>(source.length());
++  const EShMessages messages = static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
++
++  glslang::TShader shader(kind);
++  shader.setStringsWithLengths(&text, &length, 1);
++  shader.setEnvInput(glslang::EShSourceGlsl, kind, glslang::EShClientVulkan, 100);
++  shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_0);
++  shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
++  if (!shader.parse(GetDefaultResources(), 110, false, messages))
++  {
++    const std::string_view errors(shader.getInfoLog());
++    Error::SetStringFmt(error, "Failed to compile shader to SPIR-V:\n{}", errors);
++    ERROR_LOG("Failed to compile shader to SPIR-V:\n{}", errors);
++    DumpBadShader(source, errors);
++    return false;
++  }
++
++  glslang::TProgram program;
++  program.addShader(&shader);
++  if (!program.link(messages))
++  {
++    const std::string_view errors(program.getInfoLog());
++    Error::SetStringFmt(error, "Failed to link shader for SPIR-V:\n{}", errors);
++    ERROR_LOG("Failed to link shader for SPIR-V:\n{}", errors);
++    DumpBadShader(source, errors);
++    return false;
++  }
++
++  std::vector<unsigned int> words;
++  glslang::SpvOptions options;
++  options.disableOptimizer = true;
++  glslang::GlslangToSpv(*program.getIntermediate(kind), words, &options);
++  if (words.empty())
++  {
++    Error::SetStringView(error, "glslang wrote no SPIR-V for a shader it accepted");
++    return false;
++  }
++
++  out_binary->resize(words.size() * sizeof(unsigned int));
++  std::memcpy(out_binary->data(), words.data(), out_binary->size());
++  s_compiled.emplace(std::move(key), std::move(words));
++  return true;
++}
++
++#else // CHIMERA_GUEST_VK
++
+ // shaderc and SPIRV-Cross are shared libraries upstream opens at runtime to
+ // turn one shading language into another. A build without them has the one
+ // language its renderer was written in, and says so if asked for another.
+@@ -1769,6 +1873,8 @@
+   return false;
+ }
+ 
++#endif // CHIMERA_GUEST_VK
++
+ bool GPUDevice::TranslateVulkanSpvToLanguage(const std::span<const u8> spirv, GPUShaderStage stage,
+                                              GPUShaderLanguage target_language, u32 target_version,
+                                              std::string* output, Error* error)
+diff --git a/src/util/vulkan_device.cpp b/src/util/vulkan_device.cpp
+--- a/src/util/vulkan_device.cpp
++++ b/src/util/vulkan_device.cpp
+@@ -58,11 +58,26 @@
+   MAX_DESCRIPTOR_SETS_PER_FRAME = MAX_DRAW_CALLS_PER_FRAME,
+   MAX_SAMPLER_DESCRIPTORS = 8192,
+ 
++#ifdef CHIMERA_GUEST_VK
++  // chimera: the sizes the OpenGL device has (opengl_device.h), which draws
++  // the same batches in this core. Through Chimera's Vulkan bridge every
++  // mapped byte is a byte of the core's own memory - in every savestate, and
++  // copied whenever the device is made, which is after every load. A buffer
++  // that fills up submits and waits, and an upload too big for the texture
++  // buffer takes a staging buffer of its own, so smaller is only slower in
++  // a frame that draws more than a PlayStation can.
++  VERTEX_BUFFER_SIZE = 8 * 1024 * 1024,
++  INDEX_BUFFER_SIZE = 4 * 1024 * 1024,
++  VERTEX_UNIFORM_BUFFER_SIZE = 2 * 1024 * 1024,
++  FRAGMENT_UNIFORM_BUFFER_SIZE = 2 * 1024 * 1024,
++  TEXTURE_BUFFER_SIZE = 16 * 1024 * 1024,
++#else
+   VERTEX_BUFFER_SIZE = 32 * 1024 * 1024,
+   INDEX_BUFFER_SIZE = 16 * 1024 * 1024,
+   VERTEX_UNIFORM_BUFFER_SIZE = 8 * 1024 * 1024,
+   FRAGMENT_UNIFORM_BUFFER_SIZE = 8 * 1024 * 1024,
+   TEXTURE_BUFFER_SIZE = 64 * 1024 * 1024,
++#endif
+ 
+   UNIFORM_PUSH_CONSTANTS_STAGES = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+   UNIFORM_PUSH_CONSTANTS_SIZE = 128,
+@@ -481,6 +496,20 @@
+            m_optional_extensions.vk_ext_full_screen_exclusive ? "supported" : "NOT supported");
+ #endif
+ 
++#ifdef CHIMERA_GUEST_VK
++  // chimera: every command goes through Chimera's Vulkan bridge, which
++  // carries a list of them, and an extension is of use only when its commands
++  // are on that list. These are not (dynamic rendering under its KHR names,
++  // push descriptors), or cannot be (the machine's memory imported by
++  // address). They are never used, whatever the driver offers, so that what
++  // the renderer does is the same on every computer.
++  m_optional_extensions.vk_khr_dynamic_rendering = false;
++  m_optional_extensions.vk_khr_dynamic_rendering_local_read = false;
++  m_optional_extensions.vk_ext_fragment_shader_interlock = false;
++  m_optional_extensions.vk_khr_push_descriptor = false;
++  m_optional_extensions.vk_ext_external_memory_host = false;
++#endif
++
+   if (IsBrokenMobileDriver())
+   {
+     // Push descriptor is broken on Adreno v502.. don't want to think about dynamic rendending.
+@@ -834,6 +863,15 @@
+   ci.physicalDevice = m_physical_device;
+   ci.device = m_device;
+   ci.instance = m_instance;
++#ifdef CHIMERA_GUEST_VK
++  // chimera: small blocks. The allocator maps memory a whole block at a
++  // time, and through Chimera's Vulkan bridge every mapped byte is copied to
++  // the core when the mapping is made, whether a buffer uses it or not. Its
++  // usual 256 MiB blocks (32 and 64 MiB to begin with) made that 96 MiB for
++  // 30 MiB of buffers, after every load. Anything over half a block gets
++  // memory of exactly its own size.
++  ci.preferredLargeHeapBlockSize = 16 * 1024 * 1024;
++#endif
+ 
+   if (apiVersion < VK_API_VERSION_1_1)
+   {
+diff --git a/src/util/vulkan_loader.cpp b/src/util/vulkan_loader.cpp
+--- a/src/util/vulkan_loader.cpp
++++ b/src/util/vulkan_loader.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "common/assert.h"
+ #include "common/dynamic_library.h"
++#include "common/error.h"
+ #include "common/log.h"
+ 
+ #include <cstdarg>
+@@ -40,6 +41,49 @@
+ #undef VULKAN_MODULE_ENTRY_POINT
+ }
+ 
++#ifdef CHIMERA_GUEST_VK
++// chimera: there is no library to open in a sandbox. The functions are the
++// guest half of Chimera's Vulkan bridge, linked into the core, and found by
++// name (chimera_vk_lookup); each one hands its call to the frontend.
++extern "C" void* chimera_vk_lookup(const char* name);
++static bool s_chimera_vulkan_loaded = false;
++
++bool Vulkan::IsVulkanLibraryLoaded()
++{
++  return s_chimera_vulkan_loaded;
++}
++
++bool Vulkan::LoadVulkanLibrary(Error* error)
++{
++  bool required_functions_missing = false;
++
++#define VULKAN_MODULE_ENTRY_POINT(name, required)                                                                      \
++  name = reinterpret_cast<PFN_##name>(chimera_vk_lookup(#name));                                                       \
++  if (!name && required)                                                                                               \
++  {                                                                                                                    \
++    ERROR_LOG("Vulkan: the bridge has no {}", #name);                                                                  \
++    required_functions_missing = true;                                                                                 \
++  }
++#include "vulkan_entry_points.inl"
++#undef VULKAN_MODULE_ENTRY_POINT
++
++  if (required_functions_missing)
++  {
++    ResetVulkanLibraryFunctionPointers();
++    Error::SetStringView(error, "Chimera's Vulkan bridge lacks a function this renderer cannot do without");
++    return false;
++  }
++
++  s_chimera_vulkan_loaded = true;
++  return true;
++}
++
++void Vulkan::UnloadVulkanLibrary()
++{
++  ResetVulkanLibraryFunctionPointers();
++  s_chimera_vulkan_loaded = false;
++}
++#else
+ static DynamicLibrary s_vulkan_library;
+ 
+ bool Vulkan::IsVulkanLibraryLoaded()
+@@ -96,6 +140,7 @@
+   ResetVulkanLibraryFunctionPointers();
+   s_vulkan_library.Close();
+ }
++#endif // CHIMERA_GUEST_VK
+ 
+ bool Vulkan::LoadVulkanInstanceFunctions(VkInstance instance)
+ {
+diff --git a/src/util/vulkan_stream_buffer.cpp b/src/util/vulkan_stream_buffer.cpp
+--- a/src/util/vulkan_stream_buffer.cpp
++++ b/src/util/vulkan_stream_buffer.cpp
+@@ -63,7 +63,16 @@
+   VmaAllocationCreateInfo aci = {};
+   aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+   aci.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
++#ifdef CHIMERA_GUEST_VK
++  // chimera: memory the processor reads at speed. Through Chimera's Vulkan
++  // bridge a mapping is a copy on the core's side, and the bridge reads the
++  // whole of it once when it is made; from the write-combined memory a
++  // "write only" buffer is given on a desktop, that read takes about a
++  // second on an NVIDIA card - and a device is made again after every load.
++  aci.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
++#else
+   aci.preferredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
++#endif
+ 
+   VmaAllocationInfo ai = {};
+   VkBuffer new_buffer = VK_NULL_HANDLE;
+diff --git a/src/util/vulkan_texture.cpp b/src/util/vulkan_texture.cpp
+--- a/src/util/vulkan_texture.cpp
++++ b/src/util/vulkan_texture.cpp
+@@ -265,6 +265,11 @@
+   VmaAllocationCreateInfo aci = {};
+   aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+   aci.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
++#ifdef CHIMERA_GUEST_VK
++  // chimera: cached memory, for the same reason as the stream buffers
++  // (vulkan_stream_buffer.cpp)
++  aci.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
++#endif
+ 
+   VmaAllocationInfo ai;
+   VkBuffer buffer;

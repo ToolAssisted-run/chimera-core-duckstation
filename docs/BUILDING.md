@@ -40,7 +40,12 @@ sudo apt-get install -y --no-install-recommends \
 Mesa. `cmake`, `mono-complete`, `xvfb` and the `lib*-dev` packages are for
 building Chimera and running the frontend gate; the core and the core gate do
 not need them. `libegl-dev` is needed only for the GPU checks
-(`-Dgl_bridge=true`, below).
+(`-Dgl_bridge=true`, below). The Vulkan renderer's checks run in that same
+build and need a Vulkan driver on the computer: any will do, and Mesa's
+lavapipe (`mesa-vulkan-drivers`, with `libvulkan1`) draws on the processor.
+Without one they say SKIP. Nothing extra is needed to BUILD the Vulkan
+renderer: its compiler, glslang, is a submodule (`extern/glslang`), and the
+Vulkan headers are in upstream's tree.
 
 **Toolchains.**
 

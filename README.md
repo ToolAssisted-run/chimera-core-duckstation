@@ -16,8 +16,9 @@ eight sockets; up to eight discs with a lid, memory cards, savestates and
 rewind. The picture comes from the software
 renderer, or from the hardware renderer at up to 8x with true colour, texture
 filtering, downsampling, PGXP and crop - drawn by an OpenGL compiled into the
-core, or (`opengl-hw`) on the computer's own graphics card through Chimera's
-GPU bridge, which has been measured on one card (a GTX 1060, on Windows).
+core, or on the computer's own graphics card: with OpenGL (`opengl-hw`)
+through Chimera's GPU bridge, or with Vulkan (`vulkan-hw`) through its Vulkan
+bridge. Both have been measured on one card (a GTX 1060, on Windows).
 
 **The arcade boards** run MAME rom sets. Two are offered, each proved on one
 game: Namco System 11 (Tekken) and Konami GQ (Crypt Killer), with the panel

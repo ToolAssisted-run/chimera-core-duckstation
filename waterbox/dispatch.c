@@ -54,6 +54,15 @@ ECL_EXPORT void SetGpuBridge(uint64_t addr)
 		machine()->SetGpuBridge(addr);
 }
 #endif
+#ifdef CHIMERA_GUEST_VK
+/* The same, for Vulkan: a core that exports both is handed both, and draws
+ * through the one its Renderer setting names. */
+ECL_EXPORT void SetVulkanBridge(uint64_t addr)
+{
+	if (machine()->SetVulkanBridge)
+		machine()->SetVulkanBridge(addr);
+}
+#endif
 ECL_EXPORT uint64_t ChimeraMachineDigest(void) { return machine()->MachineDigest(); }
 ECL_EXPORT void SetRenderingEnabled(int on) { machine()->SetRenderingEnabled(on); }
 ECL_EXPORT uint32_t* GetVideoBgra(void) { return machine()->GetVideoBgra(); }

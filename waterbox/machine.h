@@ -31,6 +31,7 @@ typedef struct ChimeraMachine
 	void (*StateLoaded)(void);
 	void (*StateSaving)(void);
 	void (*SetGpuBridge)(uint64_t addr); /* null in a core with no OpenGL */
+	void (*SetVulkanBridge)(uint64_t addr); /* null in a core with no Vulkan */
 	uint64_t (*MachineDigest)(void);
 	void (*SetRenderingEnabled)(int on);
 	uint32_t* (*GetVideoBgra)(void);

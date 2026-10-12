@@ -29,6 +29,7 @@ in it came from DuckStation after the relicence, and that every write under
 - `extern/duckstation` - the console's emulator, a pinned submodule. Never edited in place.
 - `extern/arcadeduck` - the arcade boards' emulator, a pinned submodule. Never edited in place.
 - `extern/zlib`, `extern/zstd` - pinned submodules the core links.
+- `extern/glslang` - a pinned submodule: the compiler that makes SPIR-V of the GLSL the Vulkan device is given. `waterbox/glslang-include` holds the one header its own build would have generated.
 - `patches/` - 11 numbered patch files applied to `extern/duckstation`; `patches-arcade/` - 13 applied to `extern/arcadeduck`.
 - `meson.build`, `meson_options.txt` - one build for both flavors (`minibox_dir`, `mesa_guest_dir`, `gl_bridge`, `host_clock`, `recompiler`, `arcade`).
 - `waterbox/sources.sh` - the curated list of sources both flavors compile, for either tree (`sources.sh <group> [console|arcade]`).
@@ -37,6 +38,7 @@ in it came from DuckStation after the relicence, and that every write under
 - `waterbox/stubs/arcade.cpp` - what ArcadeDuck asks a desktop for (cabinet outputs, sockets, crosshairs), answered for a sandbox.
 - `waterbox/host.cpp`, `audio-stream.cpp` - upstream's host and audio interfaces, answered for a core with no window and no sound card (GPL-3.0: made from upstream's files).
 - `waterbox/memory-device.cpp` - the graphics device made of memory the software renderer presents to.
+- The Vulkan device has no files of its own here: its bridge is miniBox's (`source/vk`), compiled in by `meson.build`, and the adapter chooses between the two bridges (`cinterface.cpp`, `OnTheCard`).
 - `waterbox/gl-osmesa.cpp`, `gl-bridged.cpp`, `gl-host.c`, `gl-entry-points.txt` - OpenGL in the sandbox, and the GPU bridge's guest and host halves.
 - `waterbox/resources.S`, `resources.cpp` - upstream's per-title database, compiled in.
 - `waterbox/chimera-shim.h`, `stubs/`, `native-shim/` - what the guest toolchain lacks, and what a native build lacks of the guest's.
