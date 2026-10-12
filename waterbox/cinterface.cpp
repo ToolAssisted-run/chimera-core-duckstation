@@ -740,6 +740,8 @@ static int Init(void)
     return 0;
   }
 #endif
+#ifdef CHIMERA_GUEST_GL
+  // (a build with no hardware renderer has refused it already, just above)
   if (g_rendererWanted == "vulkan-hw" && !OnTheCard())
   {
     snprintf(g_loadError, sizeof(g_loadError),
@@ -747,6 +749,7 @@ static int Init(void)
              "driver, or this Chimera is older than its Vulkan bridge).");
     return 0;
   }
+#endif
 
   // The frame, at the scale the project asked for. It is the picture the
   // frontend is shown and nothing the machine reads, but the weave keeps the
