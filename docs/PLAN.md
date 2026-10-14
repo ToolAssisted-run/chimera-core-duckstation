@@ -1302,3 +1302,17 @@ repository was published; they stand as written until he says otherwise.
 A fifth, widescreen, was answered by his asking for it (2026-10-09) and
 turned out to need nothing from Chimera. chimera#221 stays open: the request
 names boards and a resolution (the ZN boards, 16x) that are not offered.
+
+## 2026-10-14: the default bindings name keys Chimera sends
+
+Start, Coin and Service of the arcade panel were on D1, D2, D5, D6 and D9, L2
+and R2 on 1 and 2; they are on Number1 and so on. Select was on RightShift
+alone; it is on Shift and RightShift. Chimera hands a key to the bindings
+under one name: the name its DistinctKeyNameOverrides gives it ("Number1",
+"Enter", "Backtick", "KeypadAdd") or else its DistinctKey name ("Up"); and
+unless told otherwise it reads the left and right Shift, Ctrl and Alt as one
+key each, "Shift", "Ctrl" and "Alt" (Input.cs, Config.MergeLAndRModifierKeys).
+A default binding to another name never fired, so those controls shipped
+unbound on the keyboard. Checked on Xvfb: with 1, Return, left Shift and Up
+held, Chimera reports Number1, Enter, Shift and Up. Left and right names stay
+beside the merged one, for a setup with the merging off.
