@@ -75,9 +75,9 @@ CHIMERA_ROOT=<chimera> ./waterbox/run-gate.sh                 # native against s
 The gates need a BIOS at `tests/roms/bios/PSX_4.1(A).bin` (or
 `CHIMERA_PS1_BIOS`) and the two games `docs/BUILDING.md` names for the
 console, and the two rom sets it names for the boards. What is missing is
-reported SKIP, and a SKIP is not a pass: with no content - which is all a
-public runner has - the gates prove the build and the package, not the
-machines.
+reported SKIP, and a SKIP is not a pass. A public runner has no content,
+so CI builds the free OpenBIOS from source (`tests/openbios/`) and boots
+that: the console runs there, though no game does.
 
 ## Licence
 

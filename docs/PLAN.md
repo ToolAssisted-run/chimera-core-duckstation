@@ -1225,6 +1225,37 @@ renderers differ in a few pixels, so a movie's pictures match with the
 renderer it was made with; the machine is the same with either unless a game
 reads its own picture back.
 
+## The console in CI: OpenBIOS, built from source (chimera issue 260, 2026-10-14)
+
+A public runner may not hold Sony's ROM, so until now CI proved the build
+and the package and booted nothing. The owner's decisions (2026-10-14):
+free programs are built in CI from source, and for this core OpenBIOS is
+for the tests only - not in the package, not a choice of the BIOS setting.
+
+**What it is.** OpenBIOS is PCSX-Redux's replacement for the PlayStation's
+ROM, written from scratch, MIT-licensed. Its source is PCSX-Redux's MIPS
+tree, the repository "nugget"; `tests/openbios/nugget.ref` names the commit.
+`tests/openbios/build.sh` builds it with a bare-metal MIPS compiler or with
+Ubuntu's `gcc-mipsel-linux-gnu` (which calls the object format
+`elf32-tradlittlemips` where the build expects `elf32-littlemips`), in a
+copy of the checkout. DuckStation knows it by the word "OpenBIOS" at 0x78
+and runs it as it is. With an empty tray its shell draws a spinning cube.
+
+**The checks.** `openbios:compare` (600 frames, native against sandbox:
+video, audio, lag and memory), `openbios:rerecord` (300 frames with a state
+saved and loaded around every one, against the straight run) and
+`openbios:drew` (frames 300 and 600 each have many colours and are not the
+same picture). They run in CI: the workflow installs `gcc-mipsel-linux-gnu`
+and fetches that one commit of nugget, with no history.
+
+**Measured.** Two builds from the same checkout in two folders differ in
+20 bytes at 0x90: the linker's build ID, a hash that takes in the folder the
+build ran in. Nothing else differs. The checks do not depend on it - each
+run builds once and compares the two flavors with the same file.
+
+**Not covered.** A game: OpenBIOS is not Sony's ROM, and the tiers that need
+the real ROM still need it.
+
 ## Sharp edges
 
 - **Write protection on code pages.** `Bus::SetRAMCodePage` protects a RAM

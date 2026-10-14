@@ -82,7 +82,8 @@ jobs:
             meson ninja-build build-essential cmake pkg-config python3 bison flex \
             python3-mako python3-packaging curl xz-utils \
             mono-complete xvfb \
-            libgl1-mesa-dev libx11-dev libxext-dev libasound2-dev
+            libgl1-mesa-dev libx11-dev libxext-dev libasound2-dev \
+            gcc-mipsel-linux-gnu
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
@@ -134,11 +135,26 @@ jobs:
           CORE_VERSION: ${{ github.sha }}
         run: ./waterbox/build-package.sh -m "$PWD/chimera-checkout/extern/chimera-common-minibox" -r "$PWD/chimera-checkout"
 
+      - name: Fetch the source of the free BIOS the gate boots
+        # PCSX-Redux's OpenBIOS (MIT), at the one commit tests/openbios/nugget.ref
+        # names: the gate builds it with gcc-mipsel-linux-gnu and boots it, so
+        # the console runs on a runner that may not hold Sony's ROM (chimera
+        # issue 260). Source only, for the tests; it is not in the package.
+        run: |
+          url="$(sed -n 's/^url //p' tests/openbios/nugget.ref)"
+          commit="$(sed -n 's/^commit //p' tests/openbios/nugget.ref)"
+          git init -q nugget
+          git -C nugget remote add origin "$url"
+          git -C nugget fetch -q --depth 1 origin "$commit"
+          git -C nugget checkout -q FETCH_HEAD
+
       - name: Core gate
-        # Six checks run here; the rest say SKIP and why (the header of this
-        # file). The gate tests the core.wbx the package step just built.
+        # Nine checks run here (three of them boot OpenBIOS); the rest say SKIP
+        # and why (the header of this file). The gate tests the core.wbx the
+        # package step just built.
         env:
           CHIMERA_ROOT: ${{ github.workspace }}/chimera-checkout
+          CHIMERA_NUGGET_SRC: ${{ github.workspace }}/nugget
         run: ./waterbox/run-gate.sh
 
       - name: The package through Chimera's contract tests

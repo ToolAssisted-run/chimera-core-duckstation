@@ -9,6 +9,9 @@
 #
 #   with nothing    the declarations, the per-title database, and both flavors
 #                   refusing a machine with no BIOS and saying why
+#   with OpenBIOS   $CHIMERA_NUGGET_SRC and a MIPS compiler: the free BIOS,
+#                   built from source, boots its shell - equivalence, the
+#                   savestate round-trip, a picture (this is what CI runs)
 #   with a BIOS     tests/roms/bios/, or $CHIMERA_PS1_BIOS: equivalence, the
 #                   savestate round-trip, determinism, the clock, input, lag
 #   with a disc     tests/roms/, or $CHIMERA_PS1_DISC (a .cue): a game's own
@@ -537,6 +540,82 @@ if [ "$only_arcade" -eq 1 ]; then
 	[ "$failed" -eq 0 ]
 	exit $?
 fi
+
+# ---- a free BIOS: OpenBIOS, built from source ------------------------------
+#
+# Sony's ROM may not be put in a public repository, so on a CI runner the
+# tiers below have nothing to boot. PCSX-Redux's OpenBIOS is a free
+# replacement written from scratch (MIT), and with an empty tray its shell
+# draws a spinning cube: the processor, the geometry coprocessor and the
+# graphics chip, with nothing of anybody's in it (chimera issue 260). It is
+# built here from a pinned source with a MIPS compiler, for these checks only;
+# it is not in the package. tests/openbios/build.sh says how.
+#   CHIMERA_NUGGET_SRC     a checkout of the source at tests/openbios/nugget.ref
+#   CHIMERA_PS1_OPENBIOS   or an openbios.bin already built from it
+openbios_tier() {
+	local ob="${CHIMERA_PS1_OPENBIOS:-}" legs="openbios:compare openbios:rerecord openbios:drew" leg
+	if [ -z "$ob" ] && [ -n "${CHIMERA_NUGGET_SRC:-}" ]; then
+		if sh "$root/tests/openbios/build.sh" "$CHIMERA_NUGGET_SRC" "$work/openbios-build" > "$work/openbios-build.log" 2>&1; then
+			ob="$work/openbios-build/openbios.bin"
+			echo "# $(tail -1 "$work/openbios-build.log")"
+		else
+			for leg in $legs; do
+				report "$leg" FAIL "OpenBIOS did not build: $(tail -1 "$work/openbios-build.log")"
+			done
+			return
+		fi
+	fi
+	if [ -z "$ob" ]; then
+		for leg in $legs; do
+			report "$leg" SKIP "needs CHIMERA_NUGGET_SRC (a checkout of tests/openbios/nugget.ref) and a MIPS compiler, or CHIMERA_PS1_OPENBIOS=<openbios.bin>"
+		done
+		return
+	fi
+	mkwork "$work/openbios" "$ob"
+	native "$work/openbios" --frames 600 2>/dev/null | digests > "$work/openbios.n"
+	wbx "$work/openbios" --frames 600 2>/dev/null | digests > "$work/openbios.w"
+	if [ -s "$work/openbios.n" ] && cmp -s "$work/openbios.n" "$work/openbios.w"; then
+		report "openbios:compare" PASS "600 frames of OpenBIOS's shell: video, audio, lag and memory identical"
+	else
+		report "openbios:compare" FAIL "$(diff "$work/openbios.n" "$work/openbios.w" | head -4 | tr '\n' ' ')"
+	fi
+	wbx "$work/openbios" --frames 300 2>/dev/null | digests > "$work/openbios.s"
+	wbx "$work/openbios" --frames 300 --rerecord 2>/dev/null | digests > "$work/openbios.r"
+	if [ -s "$work/openbios.s" ] && cmp -s "$work/openbios.s" "$work/openbios.r"; then
+		report "openbios:rerecord" PASS "300 frames with a state saved and loaded around every one, identical to the straight run"
+	else
+		report "openbios:rerecord" FAIL "$(diff "$work/openbios.s" "$work/openbios.r" | head -4 | tr '\n' ' ')"
+	fi
+	# the cube is drawn, and it turns: two frames apart, each with the
+	# background and at least two of the cube's flat-shaded faces, and not the
+	# same picture
+	wbx "$work/openbios" --frames 300 --screenshot "$work/openbios-300.tga" > /dev/null 2>&1
+	wbx "$work/openbios" --frames 600 --screenshot "$work/openbios-600.tga" > /dev/null 2>&1
+	local drew
+	drew="$(python3 - "$work/openbios-300.tga" "$work/openbios-600.tga" <<'PY' 2>&1
+import sys
+def colours(path):
+    data = open(path, "rb").read()
+    if len(data) < 18 or data[2] != 2:
+        return None, None
+    w, h, bpp = data[12] | data[13] << 8, data[14] | data[15] << 8, data[16] // 8
+    px = data[18 + data[0]:18 + data[0] + w * h * bpp]
+    return len(set(px[i:i + 3] for i in range(0, len(px), bpp))), px
+a, pa = colours(sys.argv[1])
+b, pb = colours(sys.argv[2])
+if a is None or b is None:
+    print("no picture"); sys.exit(1)
+print("%d and %d colours, %s" % (a, b, "different pictures" if pa != pb else "THE SAME picture"))
+sys.exit(0 if a >= 3 and b >= 3 and pa != pb else 1)
+PY
+)"
+	if [ $? -eq 0 ]; then
+		report "openbios:drew" PASS "the shell draws its cube and turns it: frames 300 and 600 have $drew"
+	else
+		report "openbios:drew" FAIL "frames 300 and 600: $drew"
+	fi
+}
+openbios_tier
 
 if [ -z "$bios" ]; then
 	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted region:rom \

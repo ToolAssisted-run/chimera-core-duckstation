@@ -254,6 +254,7 @@ SKIP is not a pass. What runs depends on what content the machine has:
 | With | Named by | Checks |
 | --- | --- | --- |
 | nothing | - | `build:fresh`, `keybinds`, `nobios:refuses`, `gamedb:entry` |
+| OpenBIOS, the free BIOS | `CHIMERA_NUGGET_SRC`, a checkout of the source `tests/openbios/nugget.ref` names, and a MIPS compiler (`gcc-mipsel-linux-gnu`); or `CHIMERA_PS1_OPENBIOS`, an `openbios.bin` built from it | `openbios:compare`, `openbios:rerecord`, `openbios:drew` |
 | a BIOS | `tests/roms/bios/PSX_4.1(A).bin`, or `CHIMERA_PS1_BIOS` | `bios:compare`, `bios:rerecord`, `bios:rewind`, `bios:deterministic`, `clock:virtual`, `input:reaches`, `lag:counted`, `console:reset`, `mouse:menu`, `guns:wire`, `cards:export`, `cards:import`, `cards:refused`, and with a guest Mesa `gl:softpipe`, `gl:machine`, `gl:scale`, `gl:rerecord`, `gl:rewind` |
 | a second BIOS, European | `tests/roms/bios/PSX_4.1(E).bin`, or `CHIMERA_PS1_BIOS_PAL` | `region:rom` |
 | a disc | `tests/roms/NHL Blades of Steel 2000 (USA).cue` and its image, or `CHIMERA_PS1_DISC` | `cue:alone`, `disc:compare`, `disc:rerecord`, `disc:rewind`, `disc:nameless`, `multitap:pads` |
