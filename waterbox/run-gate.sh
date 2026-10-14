@@ -559,8 +559,10 @@ openbios_tier() {
 			ob="$work/openbios-build/openbios.bin"
 			echo "# $(tail -1 "$work/openbios-build.log")"
 		else
+			# what the compiler said, where a CI log keeps it
+			grep -E -i -B2 -A2 'error|no rule|not found|cannot' "$work/openbios-build.log" | head -40 | sed 's/^/# build: /'
 			for leg in $legs; do
-				report "$leg" FAIL "OpenBIOS did not build: $(tail -1 "$work/openbios-build.log")"
+				report "$leg" FAIL "OpenBIOS did not build: $(grep -E -i -m1 'error|no rule|not found|cannot' "$work/openbios-build.log" || tail -1 "$work/openbios-build.log")"
 			done
 			return
 		fi
