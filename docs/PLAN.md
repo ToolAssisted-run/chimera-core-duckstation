@@ -1245,7 +1245,8 @@ and runs it as it is. With an empty tray its shell draws a spinning cube.
 video, audio, lag and memory), `openbios:rerecord` (300 frames with a state
 saved and loaded around every one, against the straight run) and
 `openbios:drew` (frames 300 and 600 each have many colours and are not the
-same picture). They run in CI: the workflow installs `gcc-mipsel-linux-gnu`
+same picture). They run in CI: the workflow installs `gcc-mipsel-linux-gnu` and
+`libc6-dev-mipsel-cross` (the compiler's own `limits.h` reads the C library's)
 and fetches that one commit of nugget, with no history.
 
 **Measured.** Two builds from the same checkout in two folders differ in

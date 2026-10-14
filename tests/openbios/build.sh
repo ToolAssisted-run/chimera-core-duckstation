@@ -9,7 +9,8 @@
 # only and is never put in the package.
 #
 # The build needs a MIPS compiler: a bare-metal mipsel-none-elf one, or
-# Ubuntu's gcc-mipsel-linux-gnu (the two name the object format differently).
+# Ubuntu's gcc-mipsel-linux-gnu with libc6-dev-mipsel-cross (the two name the
+# object format differently; the second needs the C library's headers too).
 # It works in a copy, so the checkout is left as it was.
 set -eu
 src="$1"
@@ -28,7 +29,7 @@ elif command -v mipsel-linux-gnu-gcc >/dev/null 2>&1; then
 	prefix=mipsel-linux-gnu
 	format=elf32-tradlittlemips
 else
-	echo "no MIPS compiler: install gcc-mipsel-linux-gnu (or a mipsel-none-elf toolchain)"
+	echo "no MIPS compiler: install gcc-mipsel-linux-gnu and libc6-dev-mipsel-cross (or a mipsel-none-elf toolchain)"
 	exit 1
 fi
 rm -rf "$out"

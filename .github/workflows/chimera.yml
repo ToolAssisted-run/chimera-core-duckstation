@@ -83,7 +83,7 @@ jobs:
             python3-mako python3-packaging curl xz-utils \
             mono-complete xvfb \
             libgl1-mesa-dev libx11-dev libxext-dev libasound2-dev \
-            gcc-mipsel-linux-gnu
+            gcc-mipsel-linux-gnu libc6-dev-mipsel-cross
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
