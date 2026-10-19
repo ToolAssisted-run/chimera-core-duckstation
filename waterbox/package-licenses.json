@@ -18,7 +18,7 @@
       "url": "https://github.com/stenzek/duckstation",
       "commit": "{submodule:extern/duckstation}",
       "file": "extern/duckstation/LICENSE",
-      "sourceUrl": "https://github.com/stenzek/duckstation/archive/{commit}.tar.gz",
+      "sourceUrl": "https://github.com/ToolAssisted-run/duckstation-gpl3/archive/{commit}.tar.gz",
       "note": "Pinned at the last commit of DuckStation offered under the GPL-3.0 (2024-09-01). Later versions are under CC BY-NC-ND 4.0 and nothing from them is in this package. Its per-title database (data/resources/gamedb.yaml) is compiled into the core."
     },
     {

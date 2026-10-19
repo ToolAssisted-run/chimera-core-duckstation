@@ -372,7 +372,7 @@ arcade_tier() {
 				--set=machine=namco_system11 "--firmware=namcoc76.zip=$ns11bios" "romset=$ep/files/tekkenac.zip" > "$ep/log" 2>&1
 			"$crun" --project "$ep/shape.chimeraProject" "$cpkg" --files "$ep/files" --firmware "namcoc76.zip=$ns11bios" \
 				--frames 1 --record "$ep/shape.txt" >> "$ep/log" 2>&1
-			python3 "$here/tests/make-project.py" "$cpkg" "$ep/tk.chimeraProject" 2400 "--idle-row=$(head -1 "$ep/shape.txt" 2>/dev/null)" \
+			python3 "$here/tests/make-project.py" "$cpkg" "$ep/tk.chimeraProject" 2400 "--idle-row=$(grep -m1 '^|' "$ep/shape.txt" 2>/dev/null)" \
 				"--arcadedb=$db" --set=machine=namco_system11 "--firmware=namcoc76.zip=$ns11bios" "${mp[@]}" "romset=$ep/files/tekkenac.zip" >> "$ep/log" 2>&1
 			"$crun" --project "$ep/tk.chimeraProject" "$cpkg" --files "$ep/files" --firmware "namcoc76.zip=$ns11bios" \
 				--dump "Main RAM=$ep/engine.ram" --export-savedata "$ep/save.e" >> "$ep/log" 2>&1
@@ -623,7 +623,7 @@ if [ -z "$bios" ]; then
 	for leg in bios:compare bios:rerecord bios:rewind bios:deterministic clock:virtual input:reaches lag:counted region:rom \
 		mouse:menu guns:wire multitap:pads ports:columns negcon:race widescreen:machine \
 		gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind \
-		gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord \
+		gpu:bridge gpu:machine gpu:picture-after-load gpu:picture-after-load-progressive gpu:rerecord \
 		console:reset cards:export cards:import cards:refused cue:alone \
 		disc:compare disc:rerecord disc:rewind disc:nameless engine:project \
 		play:compare play:rewind gpu:play gpu:enhancements disc:swap; do
@@ -667,11 +667,17 @@ fi
 # console's picture is interlaced, half of every frame handed over is the
 # field before it, and a frame buffer left out of the state would show the
 # menu's lines under the logo for one frame and nowhere else.
-wbx "$work/shell" --frames 1200 --rewind 700:1150 2>/dev/null | digests > "$work/shell.rw"
-if [ -s "$work/shell.w" ] && cmp -s "$work/shell.w" "$work/shell.rw"; then
+#
+# On weave, the console's interlace: since 2026-10-19 the default is
+# progressive, which draws every line and keeps no field from one frame to
+# the next, and so could not see a field left out of the state.
+mkwork "$work/shellw" "$bios" '{"interlacing":"weave"}'
+wbx "$work/shellw" --frames 1200 2>/dev/null | digests > "$work/shellw.w"
+wbx "$work/shellw" --frames 1200 --rewind 700:1150 2>/dev/null | digests > "$work/shell.rw"
+if [ -s "$work/shellw.w" ] && cmp -s "$work/shellw.w" "$work/shell.rw"; then
 	report "bios:rewind" PASS "kept at frame 700, restored at 1150 and replayed: the 1200-frame run it would have been"
 else
-	report "bios:rewind" FAIL "$(diff "$work/shell.w" "$work/shell.rw" | head -4 | tr '\n' ' ')"
+	report "bios:rewind" FAIL "$(diff "$work/shellw.w" "$work/shell.rw" | head -4 | tr '\n' ' ')"
 fi
 
 wbx "$work/shell" --frames 1200 2>/dev/null | digests > "$work/shell.w2"
@@ -786,6 +792,22 @@ else
 		report "gl:scale" FAIL "1x [$s1], 2x [$s2]; machine $(cmp -s <(machine_only < "$work/gl1.300") <(machine_only < "$work/gl2.300") && echo same || echo DIFFERS)"
 	fi
 
+	# and 16x, the most offered (user-decided, 2026-10-19): the renderer
+	# takes it (8x was the most once, and asked for 16x the core drew 8x), and
+	# the machine is the 1x run's. The picture is not waited for: the menu's
+	# first scaled frame is near frame 300, and a 16x frame (10240x7168, 290
+	# MB handed over) takes softpipe some 3 s, about 975 s for the 300 frames
+	# (measured 2026-10-19: 10240x7168 at frame 300, the menu at 16x).
+	mkwork "$work/gl16" "$bios" '{"renderer":"opengl","internalResolution":"16x","verbose":true}'
+	wbx "$work/gl16" --frames 120 > "$work/gl16.120" 2> "$work/gl16.log"
+	wbx "$work/gl1" --frames 120 2>/dev/null > "$work/gl1.120"
+	scale16="$(cat "$work/gl16.120" "$work/gl16.log" | plain | sed -n 's/.*GPU_HW: Resolution Scale: \([0-9]* ([0-9x]*)\).*/\1/p' | head -1)"
+	if [ "$scale16" = "16 (16384x8192)" ] && [ -s "$work/gl1.120" ] && cmp -s <(machine_only < "$work/gl1.120") <(machine_only < "$work/gl16.120"); then
+		report "gl:scale16" PASS "asked for 16x the renderer draws at $scale16, and 120 frames are the 1x run's machine"
+	else
+		report "gl:scale16" FAIL "the renderer's scale [${scale16:-none}], want 16 (16384x8192); machine $(cmp -s <(machine_only < "$work/gl1.120") <(machine_only < "$work/gl16.120") && echo same || echo DIFFERS)"
+	fi
+
 	# what the GL holds is in the guest's memory, so a state carries it
 	wbx "$work/gl1" --frames 300 --rerecord 2>/dev/null | digests > "$work/gl.rr"
 	if [ -s "$work/gl.rr" ] && cmp -s <(digests < "$work/gl1.300") "$work/gl.rr"; then
@@ -811,7 +833,7 @@ fi
 # a real driver is measured by hand, on the card, and docs/PLAN.md has what it
 # said.
 if [ ! -x "$brg/run-wbx" ]; then
-	for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord; do
+	for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:picture-after-load-progressive gpu:rerecord; do
 		report "$leg" SKIP "needs a runner with the bridge's host half: meson setup build/meson-gl -Dminibox_dir=<miniBox> -Dgl_bridge=true"
 	done
 else
@@ -819,11 +841,11 @@ else
 	hw_log="$(wbxgpu "$work/hw" --frames 300 2>&1 | plain)"
 	hw_driver="$(sed -n 's/^gpu bridge: \([0-9].*\)/\1/p' <<< "$hw_log" | head -1)"
 	if grep -q 'has no OpenGL in it' <<< "$hw_log"; then
-		for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord; do
+		for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:picture-after-load-progressive gpu:rerecord; do
 			report "$leg" SKIP "this core.wbx was built without a guest Mesa, and so without the GL device the bridge carries"
 		done
 	elif [ -z "$hw_driver" ]; then
-		for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:rerecord; do
+		for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:picture-after-load-progressive gpu:rerecord; do
 			report "$leg" SKIP "this machine gave the bridge no GL context: $(grep -m1 -i 'gpu bridge' <<< "$hw_log" | cut -c1-120)"
 		done
 	else
@@ -851,7 +873,9 @@ else
 		# back is what the card happened to hold, and the picture must differ - or
 		# this leg cannot tell a core that carries VRAM from one that does not.
 		# Frames 1100 and 1130 are both the menu, 3x the console's resolution.
-		mkwork "$work/hw3" "$bios" '{"renderer":"opengl-hw","internalResolution":"3x"}'
+		# On weave: on progressive, the default since 2026-10-19, the first
+		# frame after the load is not the straight run's (the leg after this).
+		mkwork "$work/hw3" "$bios" '{"renderer":"opengl-hw","internalResolution":"3x","interlacing":"weave"}'
 		wbxgpu "$work/hw3" --frames 1140 2>/dev/null | digests > "$work/hw3.s"
 		wbxgpu "$work/hw3" --frames 1140 --rewind 1100:1130 2>/dev/null | digests > "$work/hw3.t"
 		GPU_ENV=CHIMERA_NO_STATE_SAVING=1 wbxgpu "$work/hw3" --frames 1140 --rewind 1100:1130 2>/dev/null | digests > "$work/hw3.u"
@@ -862,6 +886,37 @@ else
 			report "gpu:picture-after-load" PASS "at 3x, kept at 1100 and restored at 1130: every frame after the load is the straight run's; left untold, the picture is not and the machine still is"
 		else
 			report "gpu:picture-after-load" FAIL "told and straight $([ "$told_ok" = yes ] && echo agree || echo DIFFER); untold picture $([ "$untold_differs" = yes ] && echo differs || echo "is the SAME - the control shows nothing"); untold machine $([ "$untold_machine" = yes ] && echo same || echo DIFFERS)"
+		fi
+
+		# The same on progressive, upstream's interlace and the default since
+		# 2026-10-19. The first frame after a load is NOT the straight run's:
+		# parts of the menu it does not redraw show the console's 15-bit VRAM
+		# (dithered) where the straight run has the card's true-colour one,
+		# although the card's VRAM is given back (measured 2026-10-19, an open
+		# defect: docs/PLAN.md). Weave hides it - every line shown is drawn that
+		# frame or kept from the last. Held here: the machine is the straight
+		# run's, and so is every picture from the second frame after the load.
+		mkwork "$work/hwp" "$bios" '{"renderer":"opengl-hw"}'
+		GPU_ENV=GATE_FRAME_HASHES=1 wbxgpu "$work/hwp" --frames 1140 > "$work/hwp.s" 2> "$work/hwp.s.f"
+		GPU_ENV=GATE_FRAME_HASHES=1 wbxgpu "$work/hwp" --frames 1140 --rewind 1100:1130 > "$work/hwp.t" 2> "$work/hwp.t.f"
+		pa_after="$(python3 - "$work/hwp.s.f" "$work/hwp.t.f" <<'PY'
+import sys
+s = dict(l.split()[1:3] for l in open(sys.argv[1]) if l.startswith("frameHash "))
+t = [l.split()[1:3] for l in open(sys.argv[2]) if l.startswith("frameHash ")]
+after = t[1130:]
+if len(after) != 40:
+    print("bad"); sys.exit(1)
+first = "the same" if s.get(after[0][0]) == after[0][1] else "not the same"
+later = [f for f, h in after[1:] if s.get(f) != h]
+print("first frame after the load %s; %d of the 39 after it differ" % (first, len(later)))
+sys.exit(1 if later else 0)
+PY
+)"
+		pa_rc=$?
+		if [ $pa_rc -eq 0 ] && [ -s "$work/hwp.s" ] && cmp -s <(machine_only < "$work/hwp.s") <(machine_only < "$work/hwp.t"); then
+			report "gpu:picture-after-load-progressive" PASS "on progressive, kept at 1100 and restored at 1130: the machine is the straight run's; $pa_after"
+		else
+			report "gpu:picture-after-load-progressive" FAIL "$pa_after; machine $(cmp -s <(machine_only < "$work/hwp.s") <(machine_only < "$work/hwp.t") && echo same || echo DIFFERS)"
 		fi
 
 		# a load before every frame: the renderer is rebuilt 300 times
@@ -1171,10 +1226,12 @@ else
 		# the row of a movie is the engine's to say (make-project.py): a project
 		# of no frames is asked for one frame of it, and the real project is
 		# written from that
+		# a recording is a movie's [Input] block (Chimera 38a88e0): the row the
+		# engine records is its first row, not its first line
 		python3 "$here/tests/make-project.py" "$cpkg" "$ep/shape.chimeraProject" 0 "${args[@]}" > "$ep/project.log" 2>&1
 		"$crun" --project "$ep/shape.chimeraProject" "$cpkg" --files "$discdir" --firmware "bios=$bios" \
 			--frames 1 --record "$ep/shape.txt" > "$ep/shape.log" 2>&1
-		idle_row="$(head -1 "$ep/shape.txt" 2>/dev/null)"
+		idle_row="$(grep -m1 '^|' "$ep/shape.txt" 2>/dev/null)"
 		python3 "$here/tests/make-project.py" "$cpkg" "$ep/gate.chimeraProject" 900 "--idle-row=$idle_row" "${args[@]}" >> "$ep/project.log" 2>&1
 		"$crun" --project "$ep/gate.chimeraProject" "$cpkg" --files "$discdir" --firmware "bios=$bios" \
 			--dump "Main RAM=$ep/engine.ram" --export-savedata "$ep/cards.engine" --meta "$ep/meta.txt" > "$ep/run.log" 2>&1
@@ -1235,7 +1292,7 @@ else
 			rm -f "$cp_dir/shape.txt"
 			"$crun" --project "$cp_dir/shape.chimeraProject" "$cpkg" --files "$discdir" --firmware "bios=$bios" \
 				--frames 1 --record "$cp_dir/shape.txt" >> "$cp_dir/log" 2>&1
-			row="$(head -1 "$cp_dir/shape.txt" 2>/dev/null)"
+			row="$(grep -m1 '^|' "$cp_dir/shape.txt" 2>/dev/null)"
 			if [ -n "$row" ] && python3 "$here/tests/make-project.py" "$cpkg" "$cp_dir/check.chimeraProject" 1 "--idle-row=$row" "${sets[@]}" "${cargs[@]}" >> "$cp_dir/log" 2>&1; then
 				cols_n=$((cols_n + 1))
 			else
@@ -1322,12 +1379,13 @@ else
 		fi
 
 		# The enhancements reach the renderer: each one, alone, must change the
-		# picture of the race. Two of them must leave the machine alone. PGXP
+		# picture of the race (True Colour is on by default, so it is turned
+		# OFF). Two of them must leave the machine alone. PGXP
 		# must NOT: it decides which polygons are drawn, and how long the
 		# console's GPU is busy follows from that (measured, docs/PLAN.md).
 		plain_v="$(sed -n 's/^videoHash=//p' "$work/play.hw")"
 		wrong=""
-		for pair in 'trueColor:"trueColor":true:same' 'textureFiltering:"textureFiltering":"bilinear":same' 'pgxp:"pgxp":true:differs'; do
+		for pair in 'trueColor:"trueColor":false:same' 'textureFiltering:"textureFiltering":"bilinear":same' 'pgxp:"pgxp":true:differs'; do
 			nm="${pair%%:*}"; rest="${pair#*:}"; want="${rest##*:}"; kv="${rest%:*}"
 			mk3d "$work/enh" "{\"fast_boot\":true,\"renderer\":\"opengl-hw\",$kv}"
 			# shellcheck disable=SC2086
@@ -1338,7 +1396,7 @@ else
 			[ "$got" = "$want" ] || wrong="$wrong; with $nm the machine $got, expected $want"
 		done
 		if [ -z "$wrong" ]; then
-			report "gpu:enhancements" PASS "true colour, bilinear filtering and PGXP each change the race's picture; the first two leave the machine alone and PGXP, as measured, does not"
+			report "gpu:enhancements" PASS "true colour (turned off), bilinear filtering and PGXP each change the race's picture; the first two leave the machine alone and PGXP, as measured, does not"
 		else
 			report "gpu:enhancements" FAIL "${wrong#; }"
 		fi

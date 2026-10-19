@@ -97,7 +97,7 @@ namespace {
 // overscan is cropped. The hardware renderer draws it at a whole multiple.
 constexpr int MAX_WIDTH = 768;
 constexpr int MAX_HEIGHT = 576;
-constexpr int MAX_SCALE = 8; // waterbox.config's video.width and height are these three multiplied out
+constexpr int MAX_SCALE = 16; // waterbox.config's video.width and height are these three multiplied out
 constexpr int MAX_AUDIO_FRAMES = 2048; // waterbox.config's audio.samplesPerFrame
 
 char g_loadError[512];
@@ -281,6 +281,8 @@ void GiveVRAMBackToTheCard()
 
   u32 width, height;
   hw->ChimeraVRAMTextureSize(&width, &height);
+  if (chimera_verbose)
+    std::fprintf(stderr, "duckstation: VRAM back to the card: card %ux%u, kept %ux%u\n", width, height, g_vramKeptWidth, g_vramKeptHeight);
   if (width != g_vramKeptWidth || height != g_vramKeptHeight)
     return; // a state from another resolution: the console's own copy has to do
   hw->ChimeraUploadVRAMTexture(g_vramKept, width * 4u);
@@ -518,17 +520,16 @@ void ApplySettings(SettingsInterface& si)
 #else
     si.SetStringValue("GPU", "Renderer", Settings::GetRendererName(GPURenderer::Software));
 #endif
-    // "1x" .. "8x": strtol stops at the letter
+    // "1x" .. "16x": strtol stops at the letter
     g_scale = std::clamp<int>(static_cast<int>(wbx_setting_long("internalResolution", 1)), 1, MAX_SCALE);
     if (strcmp(renderer, "software") == 0)
       g_scale = 1; // the software renderer draws the console's own pixels
 
-    // The hardware renderer's enhancements. Every one is off unless the
-    // project turns it on: what this core draws by default is what the
-    // console drew, at whatever resolution, and an enhancement is a choice a
-    // project records. (Upstream's own defaults differ in one: it draws in
-    // 24-bit colour unless told not to.) They do nothing under "software".
-    si.SetBoolValue("GPU", "TrueColor", wbx_setting_bool("trueColor", 0) != 0);
+    // The hardware renderer's enhancements. Each is a choice a project
+    // records. True Colour is on unless the project turns it off, as upstream
+    // has it (user-decided, 2026-10-19); the others are off unless turned on.
+    // They do nothing under "software".
+    si.SetBoolValue("GPU", "TrueColor", wbx_setting_bool("trueColor", 1) != 0);
     si.SetBoolValue("GPU", "ScaledDithering", wbx_setting_bool("scaledDithering", 1) != 0);
     si.SetBoolValue("GPU", "Debanding", false);
 
@@ -599,10 +600,10 @@ void ApplySettings(SettingsInterface& si)
   // field it is not showing, and shows one field a frame; upstream's default
   // is to pretend it does neither ("DisableInterlacing"), which is a sharper
   // picture and a different machine - what is in VRAM is not what a
-  // PlayStation would have put there. The console's own behaviour is the
-  // default here and "progressive" is the enhancement, said as such.
+  // PlayStation would have put there. Upstream's "progressive" is the
+  // default here too (user-decided, 2026-10-19); "weave" is the console's.
   {
-    char interlacing[16] = "weave";
+    char interlacing[16] = "progressive"; // upstream's default (user-decided, 2026-10-19)
     wbx_setting_str("interlacing", interlacing, sizeof(interlacing));
     si.SetBoolValue("GPU", "DisableInterlacing", strcmp(interlacing, "progressive") == 0);
   }

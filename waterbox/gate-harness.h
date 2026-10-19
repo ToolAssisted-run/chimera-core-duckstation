@@ -447,6 +447,22 @@ static int gate_run(const struct gate_core *c, const struct gate_opts *o)
 		vh = gate_fnv(vh, &w, sizeof w);
 		vh = gate_fnv(vh, &h, sizeof h);
 		vh = gate_fnv(vh, video, (size_t)w * h * 4);
+		/* GATE_FRAME_HASHES=1: each frame's picture on its own, to find the
+		 * frame two runs part at (videoHash says only that they did) */
+		if (getenv("GATE_FRAME_HASHES"))
+			fprintf(stderr, "frameHash %ld %016llx\n", f, (unsigned long long)gate_fnv(0, video, (size_t)w * h * 4));
+		/* GATE_DUMP_STEP=<n>: the picture of the n-th frame run (counting a
+		 * frame run again after a load), raw, to GATE_DUMP_FILE */
+		{
+			static long step = 0;
+			const char *at = getenv("GATE_DUMP_STEP"), *to = getenv("GATE_DUMP_FILE");
+			if (at && to && step == atol(at))
+			{
+				FILE *df = fopen(to, "wb");
+				if (df) { fwrite(&w, sizeof w, 1, df); fwrite(&h, sizeof h, 1, df); fwrite(video, 4, (size_t)w * h, df); fclose(df); }
+			}
+			step++;
+		}
 		if (f >= hashFrom)
 		{
 			th = gate_fnv(th, &w, sizeof w);

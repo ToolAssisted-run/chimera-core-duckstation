@@ -128,7 +128,9 @@ run_project() {
 	python3 "$here/make-project.py" "$package" "$work/$tag.shape.chimeraProject" 0 "$@" > "$work/$tag.log" 2>&1 || return 1
 	"$crun" --project "$work/$tag.shape.chimeraProject" "$package" --files "$work" \
 		"${crun_firmware[@]}" --frames 1 --record "$work/$tag.shape.txt" >> "$work/$tag.log" 2>&1
-	local row; row="$(head -1 "$work/$tag.shape.txt" 2>/dev/null)"
+	# the recording is a movie's [Input] block (Chimera 38a88e0): its first
+	# row, not its first line
+	local row; row="$(grep -m1 '^|' "$work/$tag.shape.txt" 2>/dev/null)"
 	[ -n "$row" ] || return 1
 	python3 "$here/make-project.py" "$package" "$work/$tag.chimeraProject" "$nframes" "--idle-row=$row" "$@" >> "$work/$tag.log" 2>&1 || return 1
 	( cd "$chimera_root" && MINIHAWK_JOB="$job" timeout 900 mono "$emu_exe" --headless \

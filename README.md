@@ -5,7 +5,10 @@ of a PlayStation - as one Chimera waterbox core.
 
 The console is `stenzek/duckstation`, pinned as a submodule at
 `extern/duckstation` to commit `14ab642` (2024-09-01): the last one offered
-under the GPL-3.0. That pin does not move; `docs/PLAN.md` says why. The
+under the GPL-3.0. That pin does not move; `docs/PLAN.md` says why. It is
+fetched from the project's own mirror,
+[`ToolAssisted-run/duckstation-gpl3`](https://github.com/ToolAssisted-run/duckstation-gpl3),
+which holds upstream's history up to that commit and nothing after it. The
 arcade boards are `StillJC/ArcadeDuck`, a GPL-3.0 derivative of that same
 commit, pinned at `extern/arcadeduck` and compiled whole beside it: one
 `core.wbx`, two emulators, and a project's Machine setting picks.

@@ -742,12 +742,13 @@ count the GCC 14 build had. (Its
 `engine:project` check ran the GCC 13 package through the engine built in
 the other checkout; its GPU checks drew on llvmpipe.)
 
-**The pin is fetched from upstream's repository.** `extern/duckstation`
-names `stenzek/duckstation` and a commit its history still holds. A
+**The pin is fetched from the project's mirror** (user-decided,
+2026-10-19). `extern/duckstation` used to name `stenzek/duckstation`, and a
 repository whose owner relicensed it may one day rewrite or remove that
-history, and a core whose pin can no longer be fetched cannot be built. A
-mirror of the pinned commit under the project's own account would end the
-dependency; creating one is the owner's (see "What is the owner's").
+history; a core whose pin can no longer be fetched cannot be built. The
+submodule now names `ToolAssisted-run/duckstation-gpl3`, a public mirror
+whose `master` is `14ab642` and its history (7,960 commits), nothing after
+it. The package's source address for DuckStation points there too.
 
 ## ArcadeDuck: the arcade boards (chimera#221, second half; 2026-10-09)
 
@@ -1284,24 +1285,24 @@ Asked and answered (2026-10-09): the pin, the name, ArcadeDuck in scope, and
 publishing - "can we wrap up the publication? Create remote repo, push, add
 it to chimera's Readme.md, add it to the site".
 
-Not yet asked, and decided provisionally so the work could go on:
+Decided provisionally while porting, and answered by the owner on
+2026-10-19:
 
-- **Defaults that are the console rather than upstream**: interlace `weave`
-  (upstream: progressive), `trueColor` off (upstream: on).
-- **Internal resolution stops at 8x.** The request lists up to 16x; a frame
-  at 16x is 10240x7680, 315 MB, read back and handed over every frame. 8x
-  already ran at 37 frames a second on a GTX 1060 for that reason.
+- **Defaults: upstream's.** Interlacing `progressive` and True Colour on,
+  for new projects (they were `weave` and off, the console's). A project
+  records every setting, so one made before keeps what it recorded.
+- **Internal resolution goes to 16x**, "no warning, no measuring, no minimal
+  frames a second: the user knows what they are doing". The options are
+  1x to 16x; the package's picture room is 12288x9216 and its memory layout
+  holds a 16x VRAM (512 MB, an arcade board's 1 GB) twice.
 - **This repository's own files are MIT**, as the other cores' are, with two
-  files made from upstream's source under its GPL-3.0.
-- **A mirror of the pin.** The submodule fetches `14ab642` from upstream's
-  own repository, which can stop offering it. Suggested: a fork under the
-  project's account holding that commit, and the submodule pointed at it.
+  files made from upstream's source under its GPL-3.0. Kept.
+- **A public mirror of the pin**, `ToolAssisted-run/duckstation-gpl3`, which
+  the submodule now fetches from (see "The pin is fetched from the
+  project's mirror").
 
-The four above were put to the owner twice and not answered before the
-repository was published; they stand as written until he says otherwise.
 A fifth, widescreen, was answered by his asking for it (2026-10-09) and
-turned out to need nothing from Chimera. chimera#221 stays open: the request
-names boards and a resolution (the ZN boards, 16x) that are not offered.
+turned out to need nothing from Chimera.
 
 ## 2026-10-14: the default bindings name keys Chimera sends
 
@@ -1316,3 +1317,52 @@ A default binding to another name never fired, so those controls shipped
 unbound on the keyboard. Checked on Xvfb: with 1, Return, left Shift and Up
 held, Chimera reports Number1, Enter, Shift and Up. Left and right names stay
 beside the merged one, for a setup with the merging off.
+
+## 2026-10-19: upstream's defaults, 16x, and the pin's mirror (user-decided)
+
+The owner answered the four decisions made provisionally while porting:
+
+- **Defaults: upstream's.** `interlacing` defaults to `progressive` and
+  `trueColor` to on, in the package and in the core's own fallbacks (the
+  runners). A project records every setting, so one made before keeps
+  `weave` and colour off. The gate's legs that need weave say so: bios:rewind
+  (a woven field left out of a state shows only on weave) and
+  gpu:picture-after-load. gpu:enhancements now turns True Colour off.
+- **Internal resolution to 16x**, with no warning and no lower limit on
+  speed ("the user knows what they are doing"). `MAX_SCALE` is 16, the
+  options run 1x to 16x, the package's picture room is 12288x9216, and the
+  memory layout is 512, 16, 1280, 16 and 4096 MiB: a 16x VRAM is 16384x8192,
+  512 MB (an arcade board's 1 GB), kept once for states and once as what the
+  card writes into, and a 16x frame is up to 450 MB. Chimera keeps as much
+  room for the picture as the core draws (chimera 4fb2b73), so a session at
+  1x does not hold 450 MB for it. run-wbx.c had the layout as `4096u << 20`,
+  which is 0 in 32 bits: every sandboxed run died at start-up ("Heap
+  allocation failed") until it was written in 64 bits. Measured: the BIOS
+  menu at 16x on softpipe is 10240x7168 at frame 300, in 975 s; gl:scale16
+  holds that the renderer draws at 16 (16384x8192) and the machine is the
+  1x run's, without waiting for the picture.
+- **This repository's files stay MIT**, with the two files from upstream's
+  source under its GPL-3.0.
+- **The pin is fetched from the project's mirror**, see "The pin is fetched
+  from the project's mirror".
+
+**Open: the first frame after a load on progressive.** On the hardware
+renderer through the GPU bridge, where a load rebuilds the renderer on a new
+context, the first frame after a load is not the straight run's: parts of the
+menu that frame does not redraw show the console's 15-bit VRAM, dithered,
+where the straight run shows the card's true-colour VRAM. The core does give
+the card's VRAM back (its log says so, 1024x512 at 1x); what puts the
+console's copy over it is not found yet. From the second frame on the
+picture is the straight run's, and the machine is the straight run's
+throughout (gpu:picture-after-load-progressive holds both). On weave it does
+not show: every line shown is drawn that frame or kept from the last. In
+Chimera a frame that was played before shows its kept picture after a load,
+which covers this frame when going back in TAStudio.
+
+Also in this round: Chimera's `--record` writes a movie's [Input] block since
+chimera 38a88e0, so the scripts that took its first line as the engine's
+idle row take its first row instead (engine:project, ports:columns,
+ns11:engine and the frontend gate's projects; the frontend gate failed every
+leg on it). waterbox/gate-harness.h prints each frame's picture hash with
+GATE_FRAME_HASHES=1, and writes the picture of the n-th frame run with
+GATE_DUMP_STEP and GATE_DUMP_FILE.

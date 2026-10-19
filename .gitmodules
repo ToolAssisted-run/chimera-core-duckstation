@@ -1,6 +1,6 @@
 [submodule "extern/duckstation"]
 	path = extern/duckstation
-	url = https://github.com/stenzek/duckstation.git
+	url = https://github.com/ToolAssisted-run/duckstation-gpl3.git
 [submodule "extern/zlib"]
 	path = extern/zlib
 	url = https://github.com/madler/zlib.git

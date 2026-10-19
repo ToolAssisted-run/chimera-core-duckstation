@@ -265,7 +265,7 @@ int main(int argc, char **argv)
 	/* matches waterbox.config memoryLayoutMiB: sbrk, sealed, invisible, plain,
 	 * mmap. Keep the two in step - a driver with more room than the frontend
 	 * gives is a gate that passes where a user's run dies. */
-	mb_memory_layout_template layout = { 512u << 20, 16u << 20, 192u << 20, 16u << 20, 2048u << 20 };
+	mb_memory_layout_template layout = { 512ull << 20, 16ull << 20, 1280ull << 20, 16ull << 20, 4096ull << 20 };
 	freader fr = { wf };
 	mb_return r;
 	wbx_create_host(&layout, "core.wbx", file_read, (uintptr_t)&fr, &r);
