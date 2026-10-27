@@ -111,7 +111,7 @@ and declared.
   console at its menu have been (see "Other consoles").
 - **M5 - the package and the frontend gate.** DONE 2026-10-09: the four
   declarations, `build-package.sh`, Chimera's contract tests, a project
-  through `chimera-run`, and the frontend gate in the old C# window and, by hand, on
+  through `chimera-run`, and the frontend gate in Chimera's window and, by hand, on
   Windows (see "The frontend gate").
 - **M6 - the hardware renderer.** DONE 2026-10-09: it runs inside the
   sandbox on Mesa softpipe and, through the GPU bridge, on a real card (a
@@ -650,7 +650,7 @@ frontend on the software renderer; the card's results are the
 What Windows found was in the harness, not the core:
 
 - **The script counted frames from wherever it started.** `frontend-ram.lua`
-  advanced N times. In the old C# window its first turn comes before frame 0; on
+  advanced N times. On Linux its first turn came before frame 0; on
   Windows the frontend has already played two frames, so N advances asked
   for two frames past the end of the movie, where a headless run pauses for
   good: the process sat idle with its window up and no file written. The
@@ -940,7 +940,7 @@ Two boards, each on one game, both on 2026-10-09:
   around every frame changes nothing; kept at frame 650 and restored at 2200
   in the fight it replays the straight run. Its EEPROM leaves as
   `at28c16.nv` and comes back in. A project of it through Chimera's engine,
-  and through the frontend in the old C# window, ends on the native reference's memory.
+  and through Chimera's window, ends on the native reference's memory.
   On the hardware renderer inside the sandbox the board is the same board
   and a rewind is exact, picture included; through the GPU bridge at 2x the
   picture after a load is the straight run's, and is not when the core is
@@ -1309,10 +1309,10 @@ turned out to need nothing from Chimera.
 Start, Coin and Service of the arcade panel were on D1, D2, D5, D6 and D9, L2
 and R2 on 1 and 2; they are on Number1 and so on. Select was on RightShift
 alone; it is on Shift and RightShift. Chimera hands a key to the bindings
-under one name: the name its DistinctKeyNameOverrides gives it ("Number1",
-"Enter", "Backtick", "KeypadAdd") or else its DistinctKey name ("Up"); and
+under one name: the name Chimera gives it ("Number1",
+"Enter", "Backtick", "KeypadAdd") or else its own name ("Up"); and
 unless told otherwise it reads the left and right Shift, Ctrl and Alt as one
-key each, "Shift", "Ctrl" and "Alt" (Input.cs, Config.MergeLAndRModifierKeys).
+key each, "Shift", "Ctrl" and "Alt".
 A default binding to another name never fired, so those controls shipped
 unbound on the keyboard. Checked on a virtual X display: with 1, Return, left Shift and Up
 held, Chimera reports Number1, Enter, Shift and Up. Left and right names stay
