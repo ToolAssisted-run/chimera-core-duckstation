@@ -111,7 +111,7 @@ and declared.
   console at its menu have been (see "Other consoles").
 - **M5 - the package and the frontend gate.** DONE 2026-10-09: the four
   declarations, `build-package.sh`, Chimera's contract tests, a project
-  through `chimera-run`, and the frontend gate under Mono and, by hand, on
+  through `chimera-run`, and the frontend gate in the old C# window and, by hand, on
   Windows (see "The frontend gate").
 - **M6 - the hardware renderer.** DONE 2026-10-09: it runs inside the
   sandbox on Mesa softpipe and, through the GPU bridge, on a real card (a
@@ -600,7 +600,7 @@ Every leg has been seen to fail (docs/gates.md, B), 2026-10-09:
 ## The frontend gate
 
 `waterbox/tests/run-frontend.sh --chimera-root <chimera>`: the installed
-package through the real frontend, headless under Mono, from projects. Six
+package through the real frontend, headless, from projects. Six
 legs, a minute and a half, passing on 2026-10-09: the console with an empty
 tray for 600 frames, a PAL console (a setting that has to arrive, and has to
 make another machine), the game from a cue sheet and its image for 1500
@@ -639,7 +639,7 @@ the hold at 5500 does not.
 **On Windows (2026-10-09).** A Windows bundle of Chimera 3b5ed5b, this
 package, the five projects the Linux run had just made and copies of the
 BIOS and the games, in a folder of its own under `%TEMP%`, run by
-`Chimera.exe --headless` with a scratch config and data folder. All five
+Chimera's window run headless with a scratch config and data folder. All five
 agree with Linux: the three idle machines and the played movie end on the
 Linux native reference's first megabyte byte for byte, the PAL console and
 the disc differ from the empty NTSC one, the bindings are adopted. The
@@ -650,7 +650,7 @@ frontend on the software renderer; the card's results are the
 What Windows found was in the harness, not the core:
 
 - **The script counted frames from wherever it started.** `frontend-ram.lua`
-  advanced N times. Under Mono its first turn comes before frame 0; on
+  advanced N times. In the old C# window its first turn comes before frame 0; on
   Windows the frontend has already played two frames, so N advances asked
   for two frames past the end of the movie, where a headless run pauses for
   good: the process sat idle with its window up and no file written. The
@@ -731,7 +731,7 @@ and its guest toolchain, Mesa, both flavors and the package built with no
 change to any script; the gate said 4 ok, 0 failed, 31 skipped, and the
 tree was clean but for the patched submodule. Not covered by that run: the
 apt package list (this machine already has everything), the build of Chimera
-and its .NET solution, the contract tests against that exact package, and
+and its window, the contract tests against that exact package, and
 the publish job.
 
 **The compiler is part of the package, so the GCC 13 build was gated with
@@ -940,7 +940,7 @@ Two boards, each on one game, both on 2026-10-09:
   around every frame changes nothing; kept at frame 650 and restored at 2200
   in the fight it replays the straight run. Its EEPROM leaves as
   `at28c16.nv` and comes back in. A project of it through Chimera's engine,
-  and through the frontend under Mono, ends on the native reference's memory.
+  and through the frontend in the old C# window, ends on the native reference's memory.
   On the hardware renderer inside the sandbox the board is the same board
   and a rewind is exact, picture included; through the GPU bridge at 2x the
   picture after a load is the straight run's, and is not when the core is
@@ -1314,7 +1314,7 @@ under one name: the name its DistinctKeyNameOverrides gives it ("Number1",
 unless told otherwise it reads the left and right Shift, Ctrl and Alt as one
 key each, "Shift", "Ctrl" and "Alt" (Input.cs, Config.MergeLAndRModifierKeys).
 A default binding to another name never fired, so those controls shipped
-unbound on the keyboard. Checked on Xvfb: with 1, Return, left Shift and Up
+unbound on the keyboard. Checked on a virtual X display: with 1, Return, left Shift and Up
 held, Chimera reports Number1, Enter, Shift and Up. Left and right names stay
 beside the merged one, for a setup with the merging off.
 

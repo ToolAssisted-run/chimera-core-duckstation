@@ -32,13 +32,13 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   meson ninja-build build-essential cmake pkg-config python3 bison flex \
   python3-mako python3-packaging curl xz-utils \
-  mono-complete xvfb \
   libgl1-mesa-dev libx11-dev libxext-dev libasound2-dev
 ```
 
 `bison`, `flex`, `python3-mako` and `python3-packaging` are for the guest
-Mesa. `cmake`, `mono-complete`, `xvfb` and the `lib*-dev` packages are for
-building Chimera and running the frontend gate; the core and the core gate do
+Mesa. `cmake` and the `lib*-dev` packages are for
+building Chimera and running the frontend gate (Chimera's
+`tools/ci-chimera.sh` also installs Qt 6.12 for its window); the core and the core gate do
 not need them. `libegl-dev` is needed only for the GPU checks
 (`-Dgl_bridge=true`, below). The Vulkan renderer's checks run in that same
 build and need a Vulkan driver on the computer: any will do, and Mesa's
@@ -52,7 +52,6 @@ Vulkan headers are in upstream's tree.
 - C and C++: the gcc and g++ of `build-essential`. Built and gated here with
   GCC 14.2 and GCC 13.3. Upstream builds with clang only; under GCC this
   build passes `-fpermissive` (`meson.build` says where and why).
-- .NET SDK 8.0, Mono and Xvfb, for Chimera and the frontend gate only.
 - No Rust, no clang, no cmake for the core itself: the build is one
   `meson.build` over a curated list of upstream's sources.
 
@@ -237,8 +236,8 @@ with changes in the tree. CI stamps the commit (`CORE_VERSION`).
 
 `build-package.sh -r "$chimera"` has already put the package in the cores
 folder of a Chimera source checkout. For a release bundle, copy
-`duckstation.chimeraCore` into the `Cores` folder beside `Chimera.exe` (or
-the folder set in File > Core Manager). Chimera downloads nothing.
+`duckstation.chimeraCore` into the `cores` folder beside Chimera's program (or
+the folder set in Tools > Core Manager...). Chimera downloads nothing.
 
 ## Run the gates
 
@@ -292,7 +291,8 @@ games are yours to provide; `tests/roms/` is ignored by git wholesale.
 ./waterbox/tests/run-frontend.sh --chimera-root "$chimera"
 ```
 
-The package through the real frontend, headless under Mono and Xvfb:
+The package through the real frontend (its window, run headless: no display is
+needed):
 `menu:frontend`, `settings:frontend`, `disc:frontend`, `play:frontend`,
 `arcade:frontend`, `keybinds`. It needs Chimera built (below), the package
 installed, `run-native`, and the BIOS; `disc:frontend` needs the disc,
@@ -302,8 +302,8 @@ is `waterbox/tests/work/`.
 
 The same projects run on Windows by hand: a Windows bundle
 (`tools/build-bundle.sh --platform windows` in the Chimera checkout), the
-package in its `Cores` folder, and `Chimera.exe --headless --config=<a
-scratch config> --project=<project> --firmware=bios=<file>
+package in its `cores` folder, and `chimera.exe --headless --config=<a
+scratch settings file> --project=<project> --firmware=bios=<file>
 --lua=frontend-ram.lua` with `MINIHAWK_JOB` naming the job file, compared
 with the Linux reference. `docs/PLAN.md` ("The frontend gate") has what that
 found.
@@ -313,19 +313,13 @@ found.
 They need no content. With Chimera built:
 
 ```sh
-cd "$chimera"
-CHIMERA_CORES_DIR="$chimera/build/Cores" dotnet test \
-  source/gui/Chimera.Tests.Client.Common/Chimera.Tests.Client.Common.csproj -c Release \
-  --filter "FullyQualifiedName~InstalledCorePackagesTests|FullyQualifiedName~MnemonicUniquenessTests"
+CHIMERA_CORES_DIR="$chimera/build/Cores" "$chimera"/build/meson-linux/source/ui/test-packages
 ```
 
 ### Building Chimera for them
 
 ```sh
-cd "$chimera"
-meson setup build/meson-linux --prefix "$PWD/build" --libdir dll
-meson compile -C build/meson-linux && meson install -C build/meson-linux
-dotnet build source/gui/Chimera.sln -c Release
+"$chimera"/tools/ci-chimera.sh
 ```
 
 ### What CI proves

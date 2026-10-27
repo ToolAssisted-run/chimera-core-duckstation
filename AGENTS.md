@@ -98,7 +98,7 @@ ninja -C build/meson-native              # run-native, run-wbx
 `build-package.sh -r "$chimera"` writes
 `$chimera/build/Cores/duckstation.chimeraCore`: the cores folder of a Chimera
 source checkout. For a release bundle, copy the file into the `Cores` folder
-beside `Chimera.exe`. Chimera downloads nothing. The same file runs on Linux
+beside Chimera's program. Chimera downloads nothing. The same file runs on Linux
 and on Windows.
 
 ## Test before you commit
@@ -126,8 +126,9 @@ and, in the Chimera checkout, the contract tests (`docs/BUILDING.md`).
   did not run; do not present the green tier as proof.
 - The GPU checks draw on whatever this machine's EGL gives and name it. A
   result seen on llvmpipe is not said of a graphics card.
-- The frontend gate needs Chimera built (natives and the .NET solution), the
-  package installed, `run-native`, Mono and Xvfb. Its work folder
+- The frontend gate needs Chimera built with its window (Chimera's
+  `tools/ci-chimera.sh` builds it), the package installed and `run-native`;
+  the window runs headless and needs no display. Its work folder
   (`waterbox/tests/work/`) is one folder: a control run leaves ITS projects
   and dumps there, so run the real gate last before using anything in it.
 - A check that was skipped has proven nothing about your change.
