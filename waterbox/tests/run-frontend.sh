@@ -1,11 +1,11 @@
 #!/bin/bash
-# The frontend half of the gate: load the DuckStation package in Chimera (under
-# Mono, on a private Xvfb display), run the console from a PROJECT for a fixed
+# The frontend half of the gate: load the DuckStation package in Chimera's window
+# (run headless: no display is needed), run the console from a PROJECT for a fixed
 # number of frames with nothing pressed, and require the first megabyte of its
 # Main RAM to be byte-identical to the native reference. Then prove that a
 # machine-shaping setting arrives through a project, that a project's disc
 # does, that a movie's presses reach the pad on the frames they name, and that
-# the package's keybinds become the frontend's defaults.
+# the package's keybinds are the machine's defaults.
 #
 # Everything goes through a project, because that is what Chimera hands a
 # core: a cue sheet and the files it names cannot be opened any other way.
@@ -43,11 +43,11 @@ fi
 	echo "chimera checkout not found; pass --chimera-root <path>" >&2; exit 1; }
 chimera_root="$(cd "$chimera_root" && pwd)"
 
-emu_exe="$chimera_root/build/Chimera.exe"
+chimera_exe="$chimera_root/build/meson-linux/source/ui/chimera"
 package="$chimera_root/build/Cores/duckstation.chimeraCore"
 crun="$chimera_root/build/meson-linux/chimera-run"
 rn="$root/build/meson-native/run-native"
-[ -f "$emu_exe" ] || { echo "Chimera not built: $emu_exe" >&2; exit 1; }
+[ -x "$chimera_exe" ] || { echo "Chimera not built: $chimera_exe" >&2; exit 1; }
 [ -f "$package" ] || { echo "package not installed: $package (run ../build-package.sh -r $chimera_root)" >&2; exit 1; }
 [ -x "$crun" ] || { echo "chimera-run not built: $crun" >&2; exit 1; }
 [ -x "$rn" ] || { echo "native reference not built" >&2; exit 1; }
@@ -88,29 +88,13 @@ work="$here/work"
 rm -rf "$work"
 mkdir -p "$work"
 
-export LD_LIBRARY_PATH="$chimera_root/build/dll:$chimera_root/build:/usr/lib/x86_64-linux-gnu"
-export MONO_CRASH_NOFILE=1 MONO_WINFORMS_XIM_STYLE=disabled ALSOFT_DRIVERS=null
-xvfb_pid=""
-cleanup() { [ -n "$xvfb_pid" ] && kill "$xvfb_pid" 2>/dev/null; }
-trap cleanup EXIT
-if [ -z "${DISPLAY:-}" ]; then
-	command -v Xvfb >/dev/null || { echo "Xvfb not found (apt install xvfb)" >&2; exit 1; }
-	for n in 90 91 92 93 94 95 96; do
-		if [ ! -e "/tmp/.X11-unix/X$n" ]; then
-			Xvfb ":$n" -screen 0 640x480x24 -nolisten tcp & xvfb_pid=$!
-			export DISPLAY=":$n"; break
-		fi
-	done
-	sleep 1
-fi
-
-config="$work/config.ini"
-( cd "$chimera_root" && timeout 120 mono "$emu_exe" --headless "--config=$config" \
-	"--lua=$here/exit.lua" ) > "$work/bootstrap.log" 2>&1
-[ -f "$config" ] || { echo "config bootstrap failed (see $work/bootstrap.log)" >&2; exit 1; }
-sed -i 's/"DispMethod": [0-9]/"DispMethod": 1/' "$config"
+# Chimera's window, run headless: the cores installed in the checkout, its
+# settings, cache and recovery files the run's own, and nothing carried over
+# from a Chimera installed on this machine
+export ALSOFT_DRIVERS=null CHIMERA_CORES_DIR="$chimera_root/build/Cores" CHIMERA_QT_CACHE="$work/qt-cache" CHIMERA_QT_RECOVERY="$work/qt-recovery" \
+	CHIMERA_QT_HASHES="$work/qt-file-hashes.txt" CHIMERA_QT_CHIMERA_SETTINGS="$work/no-chimera-config.ini"
 # this core for the PlayStation, whatever else is installed
-python3 "$here/settings-config.py" "$config" "$work/config.base.ini" '{}' "{\"bios\": \"$bios\"}"
+python3 "$here/settings-config.py" "$work/settings.base.json" '{}' "{\"bios\": \"$bios\"}"
 
 SLICE=1048576
 firmware_args=("--firmware=bios=$bios")
@@ -133,8 +117,8 @@ run_project() {
 	local row; row="$(grep -m1 '^|' "$work/$tag.shape.txt" 2>/dev/null)"
 	[ -n "$row" ] || return 1
 	python3 "$here/make-project.py" "$package" "$work/$tag.chimeraProject" "$nframes" "--idle-row=$row" "$@" >> "$work/$tag.log" 2>&1 || return 1
-	( cd "$chimera_root" && MINIHAWK_JOB="$job" timeout 900 mono "$emu_exe" --headless \
-		"--config=${run_config:-$work/config.base.ini}" "--project=$work/$tag.chimeraProject" "${firmware_args[@]}" \
+	( cd "$chimera_root" && MINIHAWK_JOB="$job" timeout 900 "$chimera_exe" --headless \
+		"--config=${run_config:-$work/settings.base.json}" "--project=$work/$tag.chimeraProject" "${firmware_args[@]}" \
 		"--lua=$here/frontend-ram.lua" ) >> "$work/$tag.log" 2>&1
 	[ -f "$work/$tag.meta.txt" ] && grep -q "^status=OK" "$work/$tag.meta.txt"
 }
@@ -266,7 +250,7 @@ else
 	cp "$ns11" "$wd/tekkenac.zip"; cp "$ns11bios" "$wd/namcoc76.zip"
 	printf '{"romset":["tekkenac.zip"]}' > "$wd/slots"; printf '{"machine":"namco_system11"}' > "$wd/settings"
 	cp "$ns11" "$work/tekkenac.zip"
-	python3 "$here/settings-config.py" "$work/config.base.ini" "$work/config.arcade.ini" '{}' "{\"bios\": \"$bios\", \"namcoc76.zip\": \"$ns11bios\"}"
+	python3 "$here/settings-config.py" "$work/settings.arcade.json" '{}' "{\"bios\": \"$bios\", \"namcoc76.zip\": \"$ns11bios\"}"
 	arcade_ok=1
 	"$rn" "$wd" --frames "$aframes" "${n_press[@]}" --dump-domain "Main RAM" "$work/native.arcade.ram.full" > "$work/native.arcade.txt" 2>&1 || arcade_ok=0
 	"$rn" "$wd" --frames "$aframes" --dump-domain "Main RAM" "$work/native.arcadeidle.ram.full" > /dev/null 2>&1 || arcade_ok=0
@@ -275,7 +259,7 @@ else
 	# the board's firmware in place of the console's, for this one project
 	console_firmware=("${firmware_args[@]}"); console_crun_firmware=("${crun_firmware[@]}")
 	firmware_args=("--firmware=namcoc76.zip=$ns11bios"); crun_firmware=(--firmware "namcoc76.zip=$ns11bios")
-	run_config="$work/config.arcade.ini"; run_system=NAMCOS11
+	run_config="$work/settings.arcade.json"; run_system=NAMCOS11
 	arcade_ran=1
 	run_project "arcade" "$aframes" "--arcadedb=$root/extern/arcadeduck/data/resources/arcadedb.yaml" \
 		"--firmware=namcoc76.zip=$ns11bios" --set=machine=namco_system11 "${m_press[@]}" "romset=$ns11" || arcade_ran=0
@@ -296,11 +280,18 @@ else
 	fi
 fi
 
-# --- the bindings the package ships must become the frontend's defaults -------
-python3 "$here/forget-controller.py" "$work/config.base.ini" "$work/config.keys.ini" "PlayStation Controllers"
+# --- the bindings the package ships are the machine's when nobody changed them
+# (the window keeps only the keys a person changed; fresh settings have none)
 # thirty frames, not one: the script may get its first turn a frame or two in
-if run_config="$work/config.keys.ini" run_project "keys" 30; then
-	if python3 "$here/check-keybinds.py" "$work/config.keys.ini" \
+if run_project "keys" 30; then
+	printf 'out=%s/keys.controls.json\nmeta=%s/keys.dump.txt\n' "$work" "$work" > "$work/job.keysdump.txt"
+	rm -f "$work/keys.controls.json" "$work/keys.dump.txt"
+	( cd "$chimera_root" && MINIHAWK_JOB="$work/job.keysdump.txt" timeout 900 "$chimera_exe" --headless \
+		"--config=$work/settings.keys.json" "--project=$work/keys.chimeraProject" "${firmware_args[@]}" \
+		"--lua=$here/dump-controls.lua" ) >> "$work/keys.log" 2>&1
+	if [ ! -f "$work/keys.dump.txt" ] || ! grep -q "^status=OK" "$work/keys.dump.txt"; then
+		report "keybinds" FAIL "the bindings were not written (see tests/work/keys.log)"
+	elif python3 "$here/check-keybinds.py" "$work/keys.controls.json" \
 		"$wb/default_keybinds.json" "PlayStation Controllers" > "$work/keys.txt" 2>&1; then
 		report "keybinds" PASS "$(cat "$work/keys.txt")"
 	else

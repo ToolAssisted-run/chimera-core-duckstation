@@ -67,7 +67,7 @@ pcall(function() client.invisibleemulation(true) end)
 
 -- Up to a frame NUMBER, not for a count of frames. The frontend starts playing
 -- the project as soon as it is open, and whether this script gets its first
--- turn before frame 0 or after frame 2 is the host's scheduling: under Mono it
+-- turn before frame 0 or after frame 2 is the host's scheduling: in the old C# window it
 -- was the first, on Windows the second. Counting advances from wherever that
 -- was asks for frames past the end of the movie, where a headless run pauses
 -- for good - and would compare the wrong frame if it did not.
