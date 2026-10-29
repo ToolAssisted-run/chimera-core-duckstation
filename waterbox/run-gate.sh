@@ -157,8 +157,8 @@ if [ $? -eq 0 ]; then report "keybinds" PASS "$kb"; else report "keybinds" FAIL 
 
 # no BIOS: both flavors must refuse, and say what is missing
 mkwork "$work/nobios"
-n_msg="$(native "$work/nobios" --frames 1 2>&1 | plain | grep -i 'no bios' | head -1)"
-w_msg="$(wbx "$work/nobios" --frames 1 2>&1 | plain | grep -i 'no bios' | head -1)"
+n_msg="$(native "$work/nobios" --frames 1 2>&1 | plain | grep 'error.no_bios' | head -1)"
+w_msg="$(wbx "$work/nobios" --frames 1 2>&1 | plain | grep 'error.no_bios' | head -1)"
 if [ -n "$n_msg" ] && [ -n "$w_msg" ]; then
 	report "nobios:refuses" PASS "both flavors: ${n_msg#*: }"
 else
@@ -215,8 +215,8 @@ arcade_tier() {
 	# a board with nothing to run: both flavors must refuse, and say what is missing
 	mkwork "$work/noset" "" '{"machine":"namco_system11"}'
 	local n_msg w_msg
-	n_msg="$(native "$work/noset" --frames 1 2>&1 | plain | grep -i 'no rom set' | head -1)"
-	w_msg="$(wbx "$work/noset" --frames 1 2>&1 | plain | grep -i 'no rom set' | head -1)"
+	n_msg="$(native "$work/noset" --frames 1 2>&1 | plain | grep 'error.no_set' | head -1)"
+	w_msg="$(wbx "$work/noset" --frames 1 2>&1 | plain | grep 'error.no_set' | head -1)"
 	if [ -n "$n_msg" ] && [ -n "$w_msg" ]; then
 		report "arcade:noset" PASS "both flavors: $(cut -c1-90 <<< "${n_msg#*: }")"
 	else
@@ -294,10 +294,10 @@ arcade_tier() {
 			fi
 			mkns11 "$work/tkbad1" '{"machine":"namco_system11"}'; cp "$nv" "$work/tkbad1/scores.nv"
 			printf '{"romset":["tekkenac.zip"],"boardmemory":["scores.nv"]}' > "$work/tkbad1/slots"
-			wbx "$work/tkbad1" --frames 1 2>&1 | plain | grep -q 'rename it to the one it is' || { memory_ok=no; memory_why="$memory_why a file under another name was not refused;"; }
+			wbx "$work/tkbad1" --frames 1 2>&1 | plain | grep -q 'error.board_keeps' || { memory_ok=no; memory_why="$memory_why a file under another name was not refused;"; }
 			mkns11 "$work/tkbad2" '{"machine":"namco_system11"}'; head -c 1000 /dev/zero > "$work/tkbad2/at28c16.nv"
 			printf '{"romset":["tekkenac.zip"],"boardmemory":["at28c16.nv"]}' > "$work/tkbad2/slots"
-			wbx "$work/tkbad2" --frames 1 2>&1 | plain | grep -q "is not this board's" || { memory_ok=no; memory_why="$memory_why a file of the wrong size was not refused;"; }
+			wbx "$work/tkbad2" --frames 1 2>&1 | plain | grep -q "error.board_memory_size" || { memory_ok=no; memory_why="$memory_why a file of the wrong size was not refused;"; }
 		fi
 		if [ "$memory_ok" = yes ]; then
 			report "ns11:memory" PASS "the board's EEPROM leaves as at28c16.nv, 2048 bytes, the same from both flavors; one a project brings comes back out byte for byte; another name and another size are refused"
@@ -308,7 +308,7 @@ arcade_tier() {
 		# the machine is the project's, not the file's
 		mkns11 "$work/tkgq" '{"machine":"konami_gq"}'
 		local wrong
-		wrong="$(wbx "$work/tkgq" --frames 1 2>&1 | plain | grep -c "is a set for the board 'namco_system11'")"
+		wrong="$(wbx "$work/tkgq" --frames 1 2>&1 | plain | grep -c "error.wrong_board.*.namco_system11.konami_gq")"
 		if [ "$wrong" -ge 1 ]; then
 			report "ns11:refused" PASS "a System 11 set in a project made for another board is refused, and the refusal names both"
 		else
@@ -390,7 +390,7 @@ arcade_tier() {
 		# rasterisers', and a rewind under it is exact, picture included.
 		mkns11 "$work/tkgl" '{"machine":"namco_system11","renderer":"opengl","verbose":true}'
 		local tkgl_log; tkgl_log="$(wbx "$work/tkgl" --frames 60 2>&1 | plain)"
-		if grep -q 'has no OpenGL in it' <<< "$tkgl_log"; then
+		if grep -q 'error.no_opengl_build' <<< "$tkgl_log"; then
 			report "ns11:gl" SKIP "this core.wbx was built without a guest Mesa"
 		else
 			mkns11 "$work/tkgl" '{"machine":"namco_system11","renderer":"opengl"}'
@@ -443,7 +443,7 @@ arcade_tier() {
 			mkns11 "$work/tkvk" '{"machine":"namco_system11","renderer":"vulkan-hw","internalResolution":"2x"}'
 			local vk_first
 			vk_first="$(wbxgpu "$work/tkvk" --frames 60 2>&1 | plain)"
-			if grep -q 'no Vulkan was handed over' <<< "$vk_first"; then
+			if grep -q 'error.no_vulkan_bridge' <<< "$vk_first"; then
 				report "ns11:vulkan" SKIP "this computer handed the core no Vulkan"
 			else
 				wbxgpu "$work/tkvk" --frames 1480 2>/dev/null | digests > "$work/tkvk.s"
@@ -756,7 +756,7 @@ fi
 # its whole use here and exactly why it says nothing about a graphics card.
 mkwork "$work/gl" "$bios" '{"renderer":"opengl","verbose":true}'
 gl_log="$(wbx "$work/gl" --frames 300 2>&1 | plain)"
-if grep -q 'has no OpenGL in it' <<< "$gl_log"; then
+if grep -q 'error.no_opengl_build' <<< "$gl_log"; then
 	for leg in gl:softpipe gl:machine gl:scale gl:rerecord gl:rewind; do
 		report "$leg" SKIP "this core.wbx was built without a guest Mesa: waterbox/setup-mesa.sh, then setup-guest.sh -- -Dmesa_guest_dir=build/mesa"
 	done
@@ -840,7 +840,7 @@ else
 	mkwork "$work/hw" "$bios" '{"renderer":"opengl-hw","verbose":true}'
 	hw_log="$(wbxgpu "$work/hw" --frames 300 2>&1 | plain)"
 	hw_driver="$(sed -n 's/^gpu bridge: \([0-9].*\)/\1/p' <<< "$hw_log" | head -1)"
-	if grep -q 'has no OpenGL in it' <<< "$hw_log"; then
+	if grep -q 'error.no_opengl_build' <<< "$hw_log"; then
 		for leg in gpu:bridge gpu:machine gpu:picture-after-load gpu:picture-after-load-progressive gpu:rerecord; do
 			report "$leg" SKIP "this core.wbx was built without a guest Mesa, and so without the GL device the bridge carries"
 		done
@@ -948,11 +948,11 @@ else
 	# (not anchored to the start of a line: the runner's two streams share
 	# the pipe, and this line can land in the middle of one of the core's)
 	vk_card="$(grep -o 'vulkan bridge: .*(Vulkan [^)]*)' <<< "$vk_log" | head -1 | cut -c16-)"
-	if grep -q 'no Vulkan was handed over' <<< "$vk_log"; then
+	if grep -q 'error.no_vulkan_bridge' <<< "$vk_log"; then
 		for leg in $vk_legs; do
 			report "$leg" SKIP "this computer handed the core no Vulkan: $(grep -m1 '^vulkan bridge:' <<< "$vk_log" | cut -c1-120)"
 		done
-	elif grep -q 'has no OpenGL in it' <<< "$vk_log"; then
+	elif grep -q 'error.no_opengl_build' <<< "$vk_log"; then
 		for leg in $vk_legs; do
 			report "$leg" SKIP "this core.wbx was built without a guest Mesa, and so without the hardware renderer"
 		done
@@ -1122,13 +1122,13 @@ PY
 	refused=0
 	mkwork "$work/bad1" "$bios"; head -c 1000 /dev/zero > "$work/bad1/memcard1.mcd"
 	printf '{"savedata":["memcard1.mcd"]}' > "$work/bad1/slots"
-	wbx "$work/bad1" --frames 1 2>&1 | plain | grep -q 'not a PlayStation memory card image' && refused=$((refused + 1))
+	wbx "$work/bad1" --frames 1 2>&1 | plain | grep -q 'error.not_card' && refused=$((refused + 1))
 	mkwork "$work/bad2" "$bios"; cp "$card" "$work/bad2/mysave.mcr"
 	printf '{"savedata":["mysave.mcr"]}' > "$work/bad2/slots"
-	wbx "$work/bad2" --frames 1 2>&1 | plain | grep -q 'rename it to the card it is' && refused=$((refused + 1))
+	wbx "$work/bad2" --frames 1 2>&1 | plain | grep -q 'error.save_name' && refused=$((refused + 1))
 	mkwork "$work/bad3" "$bios"; cp "$card" "$work/bad3/memcard2.mcd"
 	printf '{"savedata":["memcard2.mcd"]}' > "$work/bad3/slots"
-	wbx "$work/bad3" --frames 1 2>&1 | plain | grep -q 'Memory Card 2 is switched off' && refused=$((refused + 1))
+	wbx "$work/bad3" --frames 1 2>&1 | plain | grep -q 'error.card_off[^a-z]memcard2.mcd[^a-z]2' && refused=$((refused + 1))
 	# ...and the same card for slot 2 is taken once the slot is on
 	mkwork "$work/ok2" "$bios" '{"memcard2":true}'; cp "$card" "$work/ok2/memcard2.mcd"
 	printf '{"savedata":["memcard2.mcd"]}' > "$work/ok2/slots"
@@ -1143,8 +1143,8 @@ fi
 # a cue sheet handed over without the files it names
 mkwork "$work/cue" "$bios"
 printf 'FILE "game.bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n' > "$work/cue/disc"
-c_n="$(native "$work/cue" --frames 1 2>&1 | plain | grep -c 'cue sheet')"
-c_w="$(wbx "$work/cue" --frames 1 2>&1 | plain | grep -c 'cue sheet')"
+c_n="$(native "$work/cue" --frames 1 2>&1 | plain | grep -c 'error.cue_alone')"
+c_w="$(wbx "$work/cue" --frames 1 2>&1 | plain | grep -c 'error.cue_alone')"
 if [ "$c_n" -ge 1 ] && [ "$c_w" -ge 1 ]; then
 	report "cue:alone" PASS "a cue sheet opened without its files is refused, and the refusal says what to do"
 else

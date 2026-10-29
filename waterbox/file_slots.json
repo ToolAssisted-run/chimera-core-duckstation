@@ -3,7 +3,7 @@
   "slots": [
     {
       "id": "disc",
-      "title": "Discs or program",
+      "title": "slot.disc",
       "min": 0,
       "max": 8,
       "formats": [
@@ -18,7 +18,7 @@
         "psexe",
         "ps-exe"
       ],
-      "help": "What the console runs. This is usually a CD image: a .cue file with the .bin files it names beside it, a .chd, a single .bin, .img or .iso of one data track, a PlayStation Store .pbp, or an .ecm. For a game on several discs, list them all in order. The first is in the drive when the console is switched on, and the Next Disc, Previous Disc and Disc Swap controls change it when the game asks. It can also be one PlayStation EXECUTABLE (.exe, .psexe, .ps-exe), which is how homebrew and test programs are distributed. The tray then stays empty, and the console is given the program once its own ROM has started. With nothing here the console starts into its own menu.",
+      "help": "slot.disc.help",
       "exposedWhen": {
         "setting": "machine",
         "is": "playstation"
@@ -26,13 +26,13 @@
     },
     {
       "id": "savedata",
-      "title": "Memory cards",
+      "title": "slot.savedata",
       "min": 0,
       "max": 2,
       "formats": [
         "mcd"
       ],
-      "help": "Memory cards the console starts with, for a project that begins from a saved game. A card is a raw image of 131072 bytes named for its slot: memcard1.mcd for slot 1 and memcard2.mcd for slot 2. A .mcr or .mc file from another emulator is the same kind of file under another name, so rename it. Emulator > Export Save Data writes the cards back out under the same names. A card with any other name is refused and not silently ignored.",
+      "help": "slot.savedata.help",
       "exposedWhen": {
         "setting": "machine",
         "is": "playstation"
@@ -40,14 +40,14 @@
     },
     {
       "id": "romset",
-      "title": "Rom set",
+      "title": "slot.romset",
       "min": 1,
       "max": 3,
       "formats": [
         "zip",
         "chd"
       ],
-      "help": "The game's MAME rom set. This is the .zip, named exactly as MAME names it (tekken.zip, cryptklr.zip). The set is recognised by its name, so a renamed zip is an unknown game. It must be a complete (non-merged) set from a current MAME release: every rom the game needs, under the name MAME gives it now, including the roms a clone shares with its parent. A game with a hard disk or a CD has it as a .chd, named as MAME names it (420uaa04.chd). Put it here beside the zip. Where the board's own firmware is a separate zip, it comes from the firmware list and not from here.",
+      "help": "slot.romset.help",
       "exposedWhen": {
         "setting": "machine",
         "in": [
@@ -58,13 +58,13 @@
     },
     {
       "id": "boardmemory",
-      "title": "Board memory",
+      "title": "slot.boardmemory",
       "min": 0,
       "max": 4,
       "formats": [
         "nv"
       ],
-      "help": "What the board keeps while the power is off: the EEPROM with the operator's settings and the high scores, or a flash card. It is optional. Without it the board starts blank, as a new board did, and may spend its first start setting it up. The files are the ones Export Save Data writes, and they are read by name (at28c16.nv, eeprom.nv). The board says which files it keeps, and a file with another name is refused.",
+      "help": "slot.boardmemory.help",
       "exposedWhen": {
         "setting": "machine",
         "in": [

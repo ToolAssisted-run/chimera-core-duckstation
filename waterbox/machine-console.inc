@@ -216,7 +216,7 @@ bool SeedCard(int slot)
   if (!card)
   {
     snprintf(g_loadError, sizeof(g_loadError),
-             "the project brings %s, and Memory Card %d is switched off: turn the card on, or take the file out.",
+             "error.card_off" TEXT_ARG "%s" TEXT_ARG "%d",
              kCardNames[slot], slot + 1);
     return false;
   }
@@ -230,8 +230,7 @@ bool SeedCard(int slot)
   if (!ok || !MemoryCardImage::IsValid(data))
   {
     snprintf(g_loadError, sizeof(g_loadError),
-             "%s is not a PlayStation memory card image: a card is exactly 131072 bytes beginning \"MC\" (the "
-             "usual .mcd, .mcr or .mc). Convert a .gme, .vgs or single-save file with a card manager first.",
+             "error.not_card" TEXT_ARG "%s",
              kCardNames[slot]);
     return false;
   }
@@ -348,10 +347,7 @@ const char* NameTheBareFile()
       text = text && (head[i] == 0x09 || head[i] == 0x0A || head[i] == 0x0D || (head[i] >= 0x20 && head[i] < 0x7F) ||
                       head[i] >= 0x80);
     snprintf(g_loadError, sizeof(g_loadError),
-             text ? "this is a cue sheet, and it was opened without the files it names. Make a project and put the "
-                    ".cue in its Disc slot: the frontend then brings every file the sheet refers to." :
-                    "this file is not a disc image this core knows: not a CHD, a PBP, an ECM, a PlayStation "
-                    "executable, or raw 2352-byte CD sectors.");
+             text ? "error.cue_alone" : "error.not_disc");
     return nullptr;
   }
 
@@ -491,7 +487,7 @@ bool MachineBoot(Error* error)
   if (!Exists("bios"))
   {
     snprintf(g_loadError, sizeof(g_loadError),
-             "no bios: a PlayStation needs its ROM, and this core carries none. Add one to the project's firmware.");
+             "error.no_bios");
     return false;
   }
 
@@ -544,8 +540,7 @@ bool MachineBoot(Error* error)
       if (!known)
       {
         snprintf(g_loadError, sizeof(g_loadError),
-                 "the project's save data has a file called %s, and this console reads memcard1.mcd and "
-                 "memcard2.mcd: rename it to the card it is.",
+                 "error.save_name" TEXT_ARG "%s",
                  entry);
         return false;
       }
@@ -572,7 +567,7 @@ bool MachineBoot(Error* error)
 
   if (!System::BootSystem(std::move(params), error))
   {
-    Fail("the machine would not boot", *error);
+    Fail("error.would_not_boot", *error);
     return false;
   }
 

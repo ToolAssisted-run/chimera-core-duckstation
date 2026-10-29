@@ -170,9 +170,7 @@ bool SeedWhatTheBoardKeeps()
       for (int k = 0; k < ChimeraKeptCount(); k++)
         names += std::string(k ? ", " : "") + KeptFileName(k);
       snprintf(g_loadError, sizeof(g_loadError),
-               "the project's board memory has a file called %s, and this board keeps %s%s: rename it to the one it "
-               "is, or take it out.",
-               entry, names.empty() ? "nothing" : "", names.c_str());
+               names.empty() ? "error.board_keeps_nothing" TEXT_ARG "%s" : "error.board_keeps" TEXT_ARG "%s" TEXT_ARG "%s", entry, names.c_str());
       return false;
     }
 
@@ -186,7 +184,7 @@ bool SeedWhatTheBoardKeeps()
     if (!ok)
     {
       snprintf(g_loadError, sizeof(g_loadError),
-               "%s is not this board's %s: that is exactly %zu bytes, as this core saved it.", entry, entry, size);
+               "error.board_memory_size" TEXT_ARG "%s" TEXT_ARG "%s" TEXT_ARG "%zu", entry, entry, size);
       return false;
     }
   }
@@ -197,7 +195,7 @@ bool MachineBoot(Error* error)
 {
   if (!Arcade::Database::EnsureLoaded())
   {
-    snprintf(g_loadError, sizeof(g_loadError), "this core's record of the arcade boards did not load.");
+    snprintf(g_loadError, sizeof(g_loadError), "error.no_board_record");
     return false;
   }
 
@@ -232,8 +230,7 @@ bool MachineBoot(Error* error)
   if (g_set[0] == '\0')
   {
     snprintf(g_loadError, sizeof(g_loadError),
-             "no rom set: an arcade board runs a MAME rom set, a .zip named as MAME names it (sfex.zip). Put one in "
-             "the project's Rom Set slot.");
+             "error.no_set");
     return false;
   }
 
@@ -241,9 +238,7 @@ bool MachineBoot(Error* error)
   if (!g_game)
   {
     snprintf(g_loadError, sizeof(g_loadError),
-             "%s is not a rom set this core knows. The name is how a set is recognised: it must be the name MAME "
-             "gives it, and the board must be one of Sony's ZN-1 and ZN-2 and the boards built on them, Namco "
-             "System 11, Konami GV or Konami GQ.",
+             "error.unknown_set" TEXT_ARG "%s",
              g_set);
     return false;
   }
@@ -256,8 +251,7 @@ bool MachineBoot(Error* error)
     if (want[0] != '\0' && g_game->system_id != want)
     {
       snprintf(g_loadError, sizeof(g_loadError),
-               "%s is a set for the board '%s', and this project's machine is '%s'. Make the project for that "
-               "board.",
+               "error.wrong_board" TEXT_ARG "%s" TEXT_ARG "%s" TEXT_ARG "%s",
                g_set, g_game->system_id.c_str(), want);
       return false;
     }
@@ -274,7 +268,7 @@ bool MachineBoot(Error* error)
   params.override_start_paused = false;
   if (!System::BootSystem(std::move(params), error))
   {
-    Fail("the board would not start", *error);
+    Fail("error.board_would_not_start", *error);
     return false;
   }
   return SeedWhatTheBoardKeeps();

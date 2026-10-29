@@ -100,6 +100,11 @@ constexpr int MAX_HEIGHT = 576;
 constexpr int MAX_SCALE = 16; // waterbox.config's video.width and height are these three multiplied out
 constexpr int MAX_AUDIO_FRAMES = 2048; // waterbox.config's audio.samplesPerFrame
 
+/* A text a person reads is a key of languages/en.json, each of its
+ * arguments after a TEXT_ARG (chimera docs/translations.md). TEXT_ARG is a
+ * string of its own so the byte after it is never read as more of its hex. */
+#define TEXT_ARG "\x1f"
+
 char g_loadError[512];
 uint32_t* g_video;
 int g_videoWidth = 320;
@@ -129,7 +134,8 @@ void MachineAfterFrame();
 
 void Fail(const char* what, const Error& error)
 {
-  snprintf(g_loadError, sizeof(g_loadError), "%s: %s", what, error.GetDescription().c_str());
+  // what is a key; the emulator's own description is its argument
+  snprintf(g_loadError, sizeof(g_loadError), "%s" TEXT_ARG "%s", what, error.GetDescription().c_str());
 }
 
 bool Exists(const char* name)
@@ -736,7 +742,7 @@ static int Init(void)
   if (g_rendererWanted != "software")
   {
     snprintf(g_loadError, sizeof(g_loadError),
-             "this build of the core has no OpenGL in it, and the project asks for the '%s' renderer.",
+             "error.no_opengl_build" TEXT_ARG "%s",
              g_rendererWanted.c_str());
     return 0;
   }
@@ -746,8 +752,7 @@ static int Init(void)
   if (g_rendererWanted == "vulkan-hw" && !OnTheCard())
   {
     snprintf(g_loadError, sizeof(g_loadError),
-             "the renderer setting is vulkan-hw, and no Vulkan was handed over (this computer may have no Vulkan "
-             "driver, or this Chimera is older than its Vulkan bridge).");
+             "error.no_vulkan_bridge");
     return 0;
   }
 #endif
@@ -782,7 +787,7 @@ static int Init(void)
   Error error;
   if (!System::Internal::ProcessStartup(&error) || !System::Internal::CPUThreadInitialize(&error))
   {
-    Fail("the machine would not initialise", error);
+    Fail("error.would_not_initialise", error);
     return 0;
   }
 
