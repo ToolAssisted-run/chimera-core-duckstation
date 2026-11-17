@@ -17,6 +17,12 @@
 
 #include "machine.h"
 
+/* this core's windows in Chimera's Emulator menu: miniBox's ready-made Export
+ * Save Data, built on its exports (Chimera has no tool of its own for a core,
+ * Chimera issue 610) */
+#define WBX_WINDOWS_IMPLEMENTATION
+#include <waterbox_windows.h>
+
 static const ChimeraMachine* g_machine;
 
 static const ChimeraMachine* machine(void)
